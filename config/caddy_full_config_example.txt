@@ -1,0 +1,95 @@
+panel.chrnet.ru {
+    reverse_proxy remnawave:3000
+}
+
+sub.chrnet.ru {
+    reverse_proxy remnawave-subscription-page:3010
+}
+
+hooks.chrnet.ru {
+    encode gzip zstd
+    # app-config.json с CORS
+    @config path /app-config.json
+    header @config Access-Control-Allow-Origin "*"
+    # Основной бот
+    reverse_proxy remnawave_bot:8080 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        transport http {
+            read_buffer 0
+        }
+    }
+    # Вебхук YooKassa
+    handle /yookassa-webhook* {
+        reverse_proxy remnawave_bot:8080 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            transport http {
+                read_buffer 0
+            }
+        }
+    }
+}
+
+miniapp.chrnet.ru {
+    encode gzip zstd
+    # API эндпоинты /miniapp/* в приложение
+    handle /miniapp/* {
+        reverse_proxy remnawave_bot:8080 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            transport http {
+                read_buffer 0
+            }
+        }
+    }
+    # app-config.json с CORS
+    handle /app-config.json {
+        header Access-Control-Allow-Origin "*"
+        reverse_proxy remnawave_bot:8080 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            transport http {
+                read_buffer 0
+            }
+        }
+    }
+    # Статические файлы
+    handle {
+        root * /srv/miniapp
+        file_server
+    }
+}
+
+# ============================================
+# НОВАЯ КОНФИГУРАЦИЯ ДЛЯ КЛИЕНТСКОЙ ПАНЕЛИ
+# ============================================
+client.chrnet.ru {
+    encode gzip zstd
+
+    # Проксирование API запросов на Flask бэкенд
+    handle /api/* {
+        reverse_proxy localhost:5000 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            transport http {
+                read_buffer 0
+            }
+        }
+    }
+
+    # Отдача статических файлов из build директории
+    handle {
+        root * /admpanel/admin-panel/build
+        
+        # Для SPA роутинга: если файл не найден, отдаем index.html
+        try_files {path} /index.html
+        
+        file_server
+    }
+}
+

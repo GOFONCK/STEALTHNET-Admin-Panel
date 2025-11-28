@@ -1,0 +1,33 @@
+# ВРЕМЕННАЯ КОНФИГУРАЦИЯ БЕЗ SSL
+# Используйте эту конфигурацию для первоначальной настройки
+# После создания сертификатов Certbot автоматически добавит SSL
+
+server {
+    listen 80;
+    server_name ad.trendbot.space;
+
+    # --- 1. ОБРАБОТКА БЭКЕНДА ---
+    # Любой запрос, начинающийся с /api/...
+    location /api/ {
+        # 127.0.0.1:5000 — это Flask/Gunicorn
+        proxy_pass http://127.0.0.1:5000;
+        
+        # Стандартные заголовки, чтобы бэкенд "понимал", кто к нему пришел
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # --- 2. ОБРАБОТКА ФРОНТЕНДА ---
+    # Любой другой запрос (напр. / или /login или /dashboard)
+    location / {
+        # Путь к "собранному" React-проекту
+        root /var/www/stealthnet-client/build;
+        
+        # Сначала ищем файл, если не нашли - отдаем index.html
+        # (React Router сам разберется, что показать)
+        try_files $uri $uri/ /index.html;
+    }
+}
+

@@ -77,6 +77,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=True)  # Nullable для Telegram пользователей
     password_hash = db.Column(db.String(128), nullable=True)  # Nullable для Telegram пользователей
+    encrypted_password = db.Column(db.Text, nullable=True)  # Зашифрованный пароль для бота (Fernet)
     telegram_id = db.Column(db.BigInteger, unique=True, nullable=True)  # Telegram ID пользователя
     telegram_username = db.Column(db.String(100), nullable=True)  # Telegram username
     remnawave_uuid = db.Column(db.String(128), unique=True, nullable=False)
@@ -142,13 +143,29 @@ class PaymentSetting(db.Model):
     crystalpay_api_secret = db.Column(db.Text, nullable=True)
     heleket_api_key = db.Column(db.Text, nullable=True)
     telegram_bot_token = db.Column(db.Text, nullable=True)
-    yookassa_api_key = db.Column(db.Text, nullable=True)
+    yookassa_api_key = db.Column(db.Text, nullable=True)  # Устаревшее поле, оставляем для совместимости
+    yookassa_shop_id = db.Column(db.Text, nullable=True)  # Идентификатор магазина YooKassa
+    yookassa_secret_key = db.Column(db.Text, nullable=True)  # Секретный ключ YooKassa
     cryptobot_api_key = db.Column(db.Text, nullable=True)
 
 class SystemSetting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     default_language = db.Column(db.String(10), default='ru', nullable=False)
     default_currency = db.Column(db.String(10), default='uah', nullable=False)
+
+class BrandingSetting(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    logo_url = db.Column(db.String(500), nullable=True)  # URL логотипа
+    site_name = db.Column(db.String(100), default='StealthNET', nullable=False)  # Название сайта
+    site_subtitle = db.Column(db.String(200), nullable=True)  # Подзаголовок
+    login_welcome_text = db.Column(db.String(200), nullable=True)  # Текст приветствия на странице входа
+    register_welcome_text = db.Column(db.String(200), nullable=True)  # Текст приветствия на странице регистрации
+    footer_text = db.Column(db.String(200), nullable=True)  # Текст в футере
+    dashboard_servers_title = db.Column(db.String(200), nullable=True)  # Заголовок страницы серверов в Dashboard
+    dashboard_servers_description = db.Column(db.String(300), nullable=True)  # Описание страницы серверов
+    dashboard_tariffs_title = db.Column(db.String(200), nullable=True)  # Заголовок страницы тарифов
+    dashboard_tariffs_description = db.Column(db.String(300), nullable=True)  # Описание страницы тарифов
+    dashboard_tagline = db.Column(db.String(100), nullable=True)  # Слоган в сайдбаре Dashboard (например, "Secure VPN")
 
 class Payment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -160,7 +177,7 @@ class Payment(db.Model):
     currency = db.Column(db.String(5), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     payment_system_id = db.Column(db.String(100), nullable=True)
-    payment_provider = db.Column(db.String(20), nullable=True, default='crystalpay')  # 'crystalpay' или 'heleket'
+    payment_provider = db.Column(db.String(20), nullable=True, default='crystalpay')  # 'crystalpay', 'heleket', 'yookassa', 'telegram_stars'
     promo_code_id = db.Column(db.Integer, db.ForeignKey('promo_code.id'), nullable=True)  # Промокод, использованный при оплате 
 
 
@@ -1731,6 +1748,40 @@ def tariff_features_settings(current_admin):
     except Exception as e:
         return jsonify({"message": str(e)}), 500
 
+@app.route('/api/public/telegram-auth-enabled', methods=['GET'])
+def telegram_auth_enabled():
+    """Проверка доступности авторизации через Telegram"""
+    enabled = bool(BOT_API_URL and BOT_API_TOKEN and TELEGRAM_BOT_NAME)
+    return jsonify({
+        "enabled": enabled,
+        "bot_name": TELEGRAM_BOT_NAME if enabled else None
+    }), 200
+
+@app.route('/api/public/server-domain', methods=['GET'])
+def server_domain():
+    """Получить домен сервера из переменной окружения"""
+    domain = YOUR_SERVER_IP_OR_DOMAIN or request.host_url.rstrip('/')
+    # Убираем протокол, если он есть
+    if domain and (domain.startswith('http://') or domain.startswith('https://')):
+        domain = domain.split('://', 1)[1]
+    # Убираем слэш в конце
+    if domain:
+        domain = domain.rstrip('/')
+    else:
+        # Если домен не задан, используем текущий хост
+        domain = request.host
+    
+    # Формируем полный URL (всегда HTTPS для продакшена)
+    if domain.startswith('http'):
+        full_url = domain
+    else:
+        full_url = f"https://{domain}"
+    
+    return jsonify({
+        "domain": domain,
+        "full_url": full_url
+    }), 200
+
 @app.route('/api/public/tariff-features', methods=['GET'])
 @cache.cached(timeout=3600)
 def get_public_tariff_features():
@@ -1816,6 +1867,82 @@ def system_settings(current_admin):
     except Exception as e:
         return jsonify({"message": str(e)}), 500
 
+@app.route('/api/admin/branding', methods=['GET', 'POST'])
+@admin_required
+def branding_settings(current_admin):
+    """Управление настройками брендинга"""
+    b = BrandingSetting.query.first() or BrandingSetting(id=1)
+    if not b.id: 
+        db.session.add(b)
+        db.session.commit()
+    
+    if request.method == 'GET':
+        return jsonify({
+            "logo_url": b.logo_url or "",
+            "site_name": b.site_name or "StealthNET",
+            "site_subtitle": b.site_subtitle or "",
+            "login_welcome_text": b.login_welcome_text or "",
+            "register_welcome_text": b.register_welcome_text or "",
+            "footer_text": b.footer_text or "",
+            "dashboard_servers_title": b.dashboard_servers_title or "",
+            "dashboard_servers_description": b.dashboard_servers_description or "",
+            "dashboard_tariffs_title": b.dashboard_tariffs_title or "",
+            "dashboard_tariffs_description": b.dashboard_tariffs_description or "",
+            "dashboard_tagline": b.dashboard_tagline or ""
+        }), 200
+    
+    # POST - обновление
+    try:
+        data = request.json
+        if 'logo_url' in data:
+            b.logo_url = data['logo_url'] or None
+        if 'site_name' in data:
+            b.site_name = data['site_name'] or "StealthNET"
+        if 'site_subtitle' in data:
+            b.site_subtitle = data['site_subtitle'] or None
+        if 'login_welcome_text' in data:
+            b.login_welcome_text = data['login_welcome_text'] or None
+        if 'register_welcome_text' in data:
+            b.register_welcome_text = data['register_welcome_text'] or None
+        if 'footer_text' in data:
+            b.footer_text = data['footer_text'] or None
+        if 'dashboard_servers_title' in data:
+            b.dashboard_servers_title = data['dashboard_servers_title'] or None
+        if 'dashboard_servers_description' in data:
+            b.dashboard_servers_description = data['dashboard_servers_description'] or None
+        if 'dashboard_tariffs_title' in data:
+            b.dashboard_tariffs_title = data['dashboard_tariffs_title'] or None
+        if 'dashboard_tariffs_description' in data:
+            b.dashboard_tariffs_description = data['dashboard_tariffs_description'] or None
+        if 'dashboard_tagline' in data:
+            b.dashboard_tagline = data['dashboard_tagline'] or None
+        db.session.commit()
+        return jsonify({"message": "Branding settings updated"}), 200
+    except Exception as e:
+        return jsonify({"message": str(e)}), 500
+
+@app.route('/api/public/branding', methods=['GET'])
+def public_branding():
+    """Публичный эндпоинт для получения настроек брендинга"""
+    b = BrandingSetting.query.first() or BrandingSetting(id=1)
+    if not b.id: 
+        db.session.add(b)
+        db.session.commit()
+    
+    return jsonify({
+        "logo_url": b.logo_url or "",
+        "site_name": b.site_name or "StealthNET",
+        "site_subtitle": b.site_subtitle or "",
+        "login_welcome_text": b.login_welcome_text or "",
+        "register_welcome_text": b.register_welcome_text or "",
+        "footer_text": b.footer_text or "",
+        "dashboard_servers_title": b.dashboard_servers_title or "",
+        "dashboard_servers_description": b.dashboard_servers_description or "",
+        "dashboard_tariffs_title": b.dashboard_tariffs_title or "",
+        "dashboard_tariffs_description": b.dashboard_tariffs_description or "",
+        "dashboard_tagline": b.dashboard_tagline or ""
+    }), 200
+
 # --- PAYMENT & SUPPORT ---
 
 @app.route('/api/admin/payment-settings', methods=['GET', 'POST'])
@@ -1829,12 +1956,16 @@ def pay_settings(current_admin):
         s.crystalpay_api_secret = encrypt_key(d.get('crystalpay_api_secret', ''))
         s.heleket_api_key = encrypt_key(d.get('heleket_api_key', ''))
         s.telegram_bot_token = encrypt_key(d.get('telegram_bot_token', ''))
+        s.yookassa_shop_id = encrypt_key(d.get('yookassa_shop_id', ''))
+        s.yookassa_secret_key = encrypt_key(d.get('yookassa_secret_key', ''))
         db.session.commit()
     return jsonify({
         "crystalpay_api_key": decrypt_key(s.crystalpay_api_key), 
         "crystalpay_api_secret": decrypt_key(s.crystalpay_api_secret),
         "heleket_api_key": decrypt_key(s.heleket_api_key),
-        "telegram_bot_token": decrypt_key(s.telegram_bot_token)
+        "telegram_bot_token": decrypt_key(s.telegram_bot_token),
+        "yookassa_shop_id": decrypt_key(s.yookassa_shop_id),
+        "yookassa_secret_key": decrypt_key(s.yookassa_secret_key)
     }), 200
 
 @app.route('/api/client/create-payment', methods=['POST'])
@@ -1982,6 +2113,87 @@ def create_payment():
             
             payment_url = resp.get('result')
             payment_system_id = order_id  # Используем order_id как идентификатор
+        
+        elif payment_provider == 'yookassa':
+            # YooKassa API
+            shop_id = decrypt_key(s.yookassa_shop_id)
+            secret_key = decrypt_key(s.yookassa_secret_key)
+            
+            if not shop_id or not secret_key or shop_id == "DECRYPTION_ERROR" or secret_key == "DECRYPTION_ERROR":
+                return jsonify({"message": "YooKassa credentials not configured"}), 500
+            
+            # YooKassa поддерживает только RUB
+            if info['c'] != 'RUB':
+                return jsonify({"message": "YooKassa supports only RUB currency"}), 400
+            
+            # Генерируем ключ идемпотентности (любое случайное значение)
+            import uuid
+            idempotence_key = str(uuid.uuid4())
+            
+            # Формируем payload для создания платежа
+            payload = {
+                "amount": {
+                    "value": f"{final_amount:.2f}",
+                    "currency": "RUB"
+                },
+                "capture": True,  # Автоматически списываем деньги после оплаты
+                "confirmation": {
+                    "type": "redirect",
+                    "return_url": f"{YOUR_SERVER_IP_OR_DOMAIN}/dashboard/subscription"
+                },
+                "description": f"Подписка StealthNET - {t.name} ({t.duration_days} дней)",
+                "metadata": {
+                    "order_id": order_id,
+                    "user_id": str(user.id),
+                    "tariff_id": str(t.id)
+                }
+            }
+            
+            # Аутентификация через Basic Auth
+            import base64
+            auth_string = f"{shop_id}:{secret_key}"
+            auth_bytes = auth_string.encode('ascii')
+            auth_b64 = base64.b64encode(auth_bytes).decode('ascii')
+            
+            headers = {
+                "Authorization": f"Basic {auth_b64}",
+                "Idempotence-Key": idempotence_key,
+                "Content-Type": "application/json"
+            }
+            
+            try:
+                resp = requests.post(
+                    "https://api.yookassa.ru/v3/payments",
+                    json=payload,
+                    headers=headers,
+                    timeout=30
+                )
+                resp.raise_for_status()
+                payment_data = resp.json()
+                
+                if payment_data.get('status') != 'pending':
+                    error_msg = payment_data.get('description', 'YooKassa payment creation failed')
+                    print(f"YooKassa Error: {error_msg}")
+                    return jsonify({"message": error_msg}), 500
+                
+                confirmation = payment_data.get('confirmation', {})
+                payment_url = confirmation.get('confirmation_url')
+                payment_system_id = payment_data.get('id')  # ID платежа в YooKassa
+                
+                if not payment_url:
+                    return jsonify({"message": "Failed to get payment URL from YooKassa"}), 500
+                    
+            except requests.exceptions.RequestException as e:
+                print(f"YooKassa API Error: {e}")
+                if hasattr(e, 'response') and e.response is not None:
+                    try:
+                        error_data = e.response.json()
+                        error_msg = error_data.get('description', str(e))
+                    except:
+                        error_msg = str(e)
+                else:
+                    error_msg = str(e)
+                return jsonify({"message": f"YooKassa API Error: {error_msg}"}), 500
         
         else:
             # CrystalPay API (по умолчанию)
@@ -2262,6 +2474,102 @@ def telegram_set_webhook(current_admin):
         print(f"Telegram set webhook error: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/webhook/yookassa', methods=['POST'])
+def yookassa_webhook():
+    """Webhook для обработки уведомлений от YooKassa"""
+    try:
+        # YooKassa отправляет уведомления в формате JSON
+        event_data = request.json
+        
+        # Проверяем тип события
+        event_type = event_data.get('event')
+        payment_object = event_data.get('object', {})
+        
+        # Нас интересуют только события payment.succeeded и payment.canceled
+        if event_type not in ['payment.succeeded', 'payment.canceled']:
+            return jsonify({"error": False}), 200
+        
+        payment_id = payment_object.get('id')
+        payment_status = payment_object.get('status')
+        metadata = payment_object.get('metadata', {})
+        order_id = metadata.get('order_id')
+        
+        if not order_id:
+            print("YooKassa webhook: order_id not found in metadata")
+            return jsonify({"error": False}), 200
+        
+        # Находим платеж по order_id
+        p = Payment.query.filter_by(order_id=order_id).first()
+        if not p:
+            print(f"YooKassa webhook: Payment not found for order_id {order_id}")
+            return jsonify({"error": False}), 200
+        
+        # Если платеж уже обработан, игнорируем
+        if p.status == 'PAID':
+            return jsonify({"error": False}), 200
+        
+        # Обрабатываем только успешные платежи
+        if payment_status == 'succeeded' and event_type == 'payment.succeeded':
+            u = db.session.get(User, p.user_id)
+            t = db.session.get(Tariff, p.tariff_id)
+            
+            if not u or not t:
+                print(f"YooKassa webhook: User or Tariff not found for payment {order_id}")
+                return jsonify({"error": False}), 200
+            
+            h = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
+            live = requests.get(f"{API_URL}/api/users/{u.remnawave_uuid}", headers=h).json().get('response', {})
+            curr_exp = datetime.fromisoformat(live.get('expireAt'))
+            new_exp = max(datetime.now(timezone.utc), curr_exp) + timedelta(days=t.duration_days)
+            
+            # Используем сквад из тарифа, если указан, иначе дефолтный
+            squad_id = t.squad_id if t.squad_id else DEFAULT_SQUAD_ID
+            
+            # Формируем payload для обновления пользователя
+            patch_payload = {
+                "uuid": u.remnawave_uuid,
+                "expireAt": new_exp.isoformat(),
+                "activeInternalSquads": [squad_id]
+            }
+            
+            # Добавляем лимит трафика, если указан в тарифе
+            if t.traffic_limit_bytes and t.traffic_limit_bytes > 0:
+                patch_payload["trafficLimitBytes"] = t.traffic_limit_bytes
+                patch_payload["trafficLimitStrategy"] = "NO_RESET"
+            
+            requests.patch(f"{API_URL}/api/users", headers={"Content-Type": "application/json", **h}, json=patch_payload)
+            
+            # Списываем использование промокода, если он был использован
+            if p.promo_code_id:
+                promo = db.session.get(PromoCode, p.promo_code_id)
+                if promo and promo.uses_left > 0:
+                    promo.uses_left -= 1
+            
+            p.status = 'PAID'
+            db.session.commit()
+            cache.delete(f'live_data_{u.remnawave_uuid}')
+            cache.delete(f'nodes_{u.remnawave_uuid}')
+            
+            # Синхронизируем обновленную подписку из RemnaWave в бота в фоновом режиме
+            if BOT_API_URL and BOT_API_TOKEN:
+                app_context = app.app_context()
+                import threading
+                sync_thread = threading.Thread(
+                    target=sync_subscription_to_bot_in_background,
+                    args=(app_context, u.remnawave_uuid),
+                    daemon=True
+                )
+                sync_thread.start()
+                print(f"Started background sync thread for user {u.remnawave_uuid}")
+        
+        return jsonify({"error": False}), 200
+        
+    except Exception as e:
+        print(f"YooKassa webhook error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": False}), 200  # Всегда возвращаем 200, чтобы YooKassa не повторял запрос
+
 @app.route('/api/webhook/telegram', methods=['POST'])
 def telegram_webhook():
     """Webhook для обработки платежей Telegram Stars"""
@@ -2505,6 +2813,50 @@ def make_admin(email):
     if user: user.role = 'ADMIN'; db.session.commit(); print(f"User {email} is now ADMIN.")
     else: print(f"User {email} not found.")
 
+@app.cli.command("migrate-yookassa-fields")
+def migrate_yookassa_fields():
+    """Добавляет поля yookassa_shop_id и yookassa_secret_key в таблицу payment_setting"""
+    try:
+        # Проверяем существующие колонки через SQL
+        from sqlalchemy import inspect, text
+        inspector = inspect(db.engine)
+        columns = [col['name'] for col in inspector.get_columns('payment_setting')]
+        
+        changes_made = False
+        
+        # Добавляем yookassa_shop_id, если его нет
+        if 'yookassa_shop_id' not in columns:
+            print("➕ Добавляем колонку yookassa_shop_id...")
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE payment_setting ADD COLUMN yookassa_shop_id TEXT"))
+                conn.commit()
+            print("✓ Колонка yookassa_shop_id добавлена")
+            changes_made = True
+        else:
+            print("✓ Колонка yookassa_shop_id уже существует")
+        
+        # Добавляем yookassa_secret_key, если его нет
+        if 'yookassa_secret_key' not in columns:
+            print("➕ Добавляем колонку yookassa_secret_key...")
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE payment_setting ADD COLUMN yookassa_secret_key TEXT"))
+                conn.commit()
+            print("✓ Колонка yookassa_secret_key добавлена")
+            changes_made = True
+        else:
+            print("✓ Колонка yookassa_secret_key уже существует")
+        
+        if changes_made:
+            print("\n✅ Миграция успешно завершена!")
+        else:
+            print("\n✅ Все необходимые колонки уже существуют. Миграция не требуется.")
+            
+    except Exception as e:
+        print(f"❌ Ошибка при выполнении миграции: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
 # ❗️❗️❗️ ЭНДПОИНТ №29: ПРОВЕРКА ПРОМОКОДА (КЛИЕНТ) ❗️❗️❗️
 @app.route('/api/client/check-promocode', methods=['POST'])
 def check_promocode():
@@ -2528,6 +2880,320 @@ def check_promocode():
         "value": promo.value,
         "uses_left": promo.uses_left
     }), 200
+
+# ❗️❗️❗️ ЭНДПОИНТ ДЛЯ БОТА: ПОЛУЧЕНИЕ JWT ТОКЕНА ПО TELEGRAM_ID ❗️❗️❗️
+@app.route('/api/bot/get-token', methods=['POST'])
+@limiter.limit("20 per minute")
+def bot_get_token():
+    """
+    Эндпоинт для получения JWT токена по telegram_id.
+    Используется Telegram ботом для авторизации пользователей.
+    
+    Логика:
+    1. Ищет пользователя в локальной БД по telegram_id
+    2. Если не найден - пытается найти через RemnaWave API (BOT_API_URL)
+    3. Если найден в RemnaWave - создает запись в локальной БД
+    4. Если не найден - возвращает ошибку с инструкцией
+    """
+    data = request.json
+    telegram_id = data.get('telegram_id')
+    
+    if not telegram_id:
+        return jsonify({"message": "telegram_id is required"}), 400
+    
+    try:
+        # Шаг 1: Ищем пользователя в локальной БД
+        user = User.query.filter_by(telegram_id=telegram_id).first()
+        
+        if user:
+            # Пользователь найден - возвращаем токен
+            token = create_local_jwt(user.id)
+            return jsonify({"token": token}), 200
+        
+        # Шаг 2: Пользователь не найден в БД - пытаемся найти через RemnaWave API
+        if BOT_API_URL and BOT_API_TOKEN:
+            try:
+                bot_api_url = BOT_API_URL.rstrip('/')
+                headers_list = [
+                    {"X-API-Key": BOT_API_TOKEN},
+                    {"Authorization": f"Bearer {BOT_API_TOKEN}"}
+                ]
+                
+                bot_user = None
+                remnawave_uuid = None
+                
+                # Пробуем получить пользователя из RemnaWave API
+                for headers in headers_list:
+                    try:
+                        bot_resp = requests.get(
+                            f"{bot_api_url}/users/{telegram_id}",
+                            headers=headers,
+                            timeout=10
+                        )
+                        
+                        if bot_resp.status_code == 200:
+                            bot_data = bot_resp.json()
+                            
+                            # Парсим ответ
+                            if isinstance(bot_data, dict):
+                                user_data = bot_data.get('response', {}) if 'response' in bot_data else bot_data
+                                remnawave_uuid = (user_data.get('remnawave_uuid') or 
+                                                 user_data.get('uuid') or
+                                                 user_data.get('user_uuid'))
+                                bot_user = user_data
+                                break
+                    except Exception as e:
+                        print(f"Error fetching from bot API: {e}")
+                        continue
+                
+                # Если нашли пользователя в RemnaWave API
+                if bot_user and remnawave_uuid:
+                    print(f"Found user in RemnaWave API, creating local record for telegram_id: {telegram_id}")
+                    
+                    # Создаем запись в локальной БД
+                    sys_settings = SystemSetting.query.first() or SystemSetting(id=1)
+                    if not sys_settings.id:
+                        db.session.add(sys_settings)
+                        db.session.flush()
+                    
+                    # Получаем username из bot_user или используем пустую строку
+                    telegram_username = bot_user.get('telegram_username') or bot_user.get('username') or ''
+                    
+                    # Создаем нового пользователя
+                    user = User(
+                        telegram_id=telegram_id,
+                        telegram_username=telegram_username,
+                        email=f"tg_{telegram_id}@telegram.local",
+                        password_hash='',
+                        remnawave_uuid=remnawave_uuid,
+                        is_verified=True,
+                        preferred_lang=sys_settings.default_language,
+                        preferred_currency=sys_settings.default_currency
+                    )
+                    db.session.add(user)
+                    db.session.flush()
+                    user.referral_code = generate_referral_code(user.id)
+                    db.session.commit()
+                    
+                    print(f"✓ Created local user record for telegram_id: {telegram_id}, UUID: {remnawave_uuid}")
+                    
+                    # Возвращаем токен
+                    token = create_local_jwt(user.id)
+                    return jsonify({"token": token}), 200
+            
+            except Exception as e:
+                print(f"Error checking RemnaWave API: {e}")
+                # Продолжаем - вернем ошибку ниже
+        
+        # Шаг 3: Пользователь не найден ни в БД, ни в RemnaWave API
+        return jsonify({
+            "message": "User not found. Please register via web panel first.",
+            "register_url": f"{YOUR_SERVER_IP_OR_DOMAIN}/register" if YOUR_SERVER_IP_OR_DOMAIN else "https://client.chrnet.ru/register",
+            "error_code": "USER_NOT_FOUND"
+        }), 404
+    
+    except Exception as e:
+        print(f"Bot get token error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Internal Server Error"}), 500
+
+# ❗️❗️❗️ ЭНДПОИНТ ДЛЯ БОТА: РЕГИСТРАЦИЯ ПОЛЬЗОВАТЕЛЯ ❗️❗️❗️
+@app.route('/api/bot/register', methods=['POST'])
+@limiter.limit("5 per hour")
+def bot_register():
+    """
+    Регистрация пользователя через Telegram бота.
+    Автоматически генерирует логин (email) и пароль.
+    Возвращает логин и пароль для входа на сайте.
+    """
+    data = request.json
+    telegram_id = data.get('telegram_id')
+    telegram_username = data.get('telegram_username', '')
+    ref_code = data.get('ref_code')
+    
+    if not telegram_id:
+        return jsonify({"message": "telegram_id is required"}), 400
+    
+    try:
+        # Проверяем, не зарегистрирован ли уже пользователь
+        existing_user = User.query.filter_by(telegram_id=telegram_id).first()
+        if existing_user:
+            # Если пользователь уже зарегистрирован, возвращаем его данные
+            email = existing_user.email
+            # Если у пользователя есть пароль, мы не можем его вернуть (хеширован)
+            # Но можем сказать, что он уже зарегистрирован
+            return jsonify({
+                "message": "User already registered",
+                "email": email,
+                "has_password": bool(existing_user.password_hash and existing_user.password_hash != '')
+            }), 400
+        
+        # Генерируем логин (email) и пароль
+        # Логин: tg_{telegram_id}@stealthnet.local
+        email = f"tg_{telegram_id}@stealthnet.local"
+        
+        # Проверяем, не занят ли email (маловероятно, но на всякий случай)
+        if User.query.filter_by(email=email).first():
+            # Если занят, добавляем случайную часть
+            random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
+            email = f"tg_{telegram_id}_{random_suffix}@stealthnet.local"
+        
+        # Генерируем пароль: 12 символов (буквы + цифры)
+        password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+        hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+        
+        # Обрабатываем реферальный код
+        referrer, bonus_days_new = None, 0
+        if ref_code and isinstance(ref_code, str):
+            referrer = User.query.filter_by(referral_code=ref_code).first()
+            if referrer:
+                s = ReferralSetting.query.first()
+                bonus_days_new = s.invitee_bonus_days if s else 7
+        
+        expire_date = (datetime.now(timezone.utc) + timedelta(days=bonus_days_new)).isoformat()
+        clean_username = email.replace("@", "_").replace(".", "_")
+        
+        # Создаем пользователя в RemnaWave API
+        payload_create = {
+            "email": email,
+            "password": password,
+            "username": clean_username,
+            "expireAt": expire_date,
+            "activeInternalSquads": [DEFAULT_SQUAD_ID] if referrer else []
+        }
+        
+        try:
+            resp = requests.post(
+                f"{API_URL}/api/users",
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+                json=payload_create,
+                timeout=30
+            )
+            resp.raise_for_status()
+            remnawave_uuid = resp.json().get('response', {}).get('uuid')
+            
+            if not remnawave_uuid:
+                return jsonify({"message": "Provider Error: Failed to create user"}), 500
+            
+        except requests.exceptions.HTTPError as e:
+            print(f"RemnaWave API HTTP Error: {e}")
+            print(f"Response: {resp.text if 'resp' in locals() else 'No response'}")
+            return jsonify({"message": "Provider error: Failed to create user in RemnaWave"}), 500
+        except Exception as e:
+            print(f"RemnaWave API Error: {e}")
+            return jsonify({"message": "Provider error"}), 500
+        
+        # Создаем запись в локальной БД
+        sys_settings = SystemSetting.query.first() or SystemSetting(id=1)
+        if not sys_settings.id:
+            db.session.add(sys_settings)
+            db.session.flush()
+        
+        # Шифруем пароль для хранения (чтобы можно было показать пользователю)
+        encrypted_password_str = None
+        if app.config.get('FERNET_KEY') and fernet:
+            try:
+                encrypted_password_str = fernet.encrypt(password.encode()).decode()
+            except Exception as e:
+                print(f"Error encrypting password: {e}")
+                encrypted_password_str = None
+        
+        new_user = User(
+            telegram_id=telegram_id,
+            telegram_username=telegram_username,
+            email=email,
+            password_hash=hashed_password,
+            encrypted_password=encrypted_password_str,  # Сохраняем зашифрованный пароль
+            remnawave_uuid=remnawave_uuid,
+            referrer_id=referrer.id if referrer else None,
+            is_verified=True,  # Telegram пользователи считаются верифицированными
+            created_at=datetime.now(timezone.utc),
+            preferred_lang=sys_settings.default_language,
+            preferred_currency=sys_settings.default_currency
+        )
+        db.session.add(new_user)
+        db.session.flush()
+        new_user.referral_code = generate_referral_code(new_user.id)
+        db.session.commit()
+        
+        # Применяем бонус рефереру в фоне
+        if referrer:
+            s = ReferralSetting.query.first()
+            days = s.referrer_bonus_days if s else 7
+            threading.Thread(
+                target=apply_referrer_bonus_in_background,
+                args=(app.app_context(), referrer.remnawave_uuid, days)
+            ).start()
+        
+        print(f"✓ User registered via bot: telegram_id={telegram_id}, email={email}")
+        
+        # Возвращаем логин и пароль
+        return jsonify({
+            "message": "Registration successful",
+            "email": email,
+            "password": password,  # Возвращаем пароль только один раз при регистрации
+            "token": create_local_jwt(new_user.id)
+        }), 201
+        
+    except Exception as e:
+        print(f"Bot register error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Internal Server Error"}), 500
+
+# ❗️❗️❗️ ЭНДПОИНТ ДЛЯ БОТА: ПОЛУЧЕНИЕ ЛОГИНА И ПАРОЛЯ ❗️❗️❗️
+@app.route('/api/bot/get-credentials', methods=['POST'])
+@limiter.limit("10 per minute")
+def bot_get_credentials():
+    """
+    Получить логин (email) и пароль пользователя для входа на сайте.
+    Пароль возвращается из зашифрованного хранилища, если доступен.
+    """
+    data = request.json
+    telegram_id = data.get('telegram_id')
+    
+    if not telegram_id:
+        return jsonify({"message": "telegram_id is required"}), 400
+    
+    try:
+        user = User.query.filter_by(telegram_id=telegram_id).first()
+        
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+        
+        if not user.email:
+            return jsonify({"message": "User has no email/login"}), 404
+        
+        # Проверяем, есть ли пароль
+        has_password = bool(user.password_hash and user.password_hash != '')
+        
+        # Пытаемся расшифровать пароль, если он сохранен
+        password = None
+        if user.encrypted_password and app.config.get('FERNET_KEY') and fernet:
+            try:
+                password = fernet.decrypt(user.encrypted_password.encode()).decode()
+            except Exception as e:
+                print(f"Error decrypting password: {e}")
+                password = None
+        
+        result = {
+            "email": user.email,
+            "has_password": has_password
+        }
+        
+        if password:
+            result["password"] = password
+        elif not has_password:
+            result["message"] = "No password set"
+        else:
+            result["message"] = "Password not available (contact support to reset)"
+        
+        return jsonify(result), 200
+    
+    except Exception as e:
+        print(f"Bot get credentials error: {e}")
+        return jsonify({"message": "Internal Server Error"}), 500
 
 # ❗️❗️❗️ ЭНДПОИНТ №30: АКТИВАЦИЯ ПРОМОКОДА (КЛИЕНТ) ❗️❗️❗️
 @app.route('/api/client/activate-promocode', methods=['POST'])
@@ -2591,4 +3257,5 @@ if __name__ == '__main__':
         if not ReferralSetting.query.first(): db.session.add(ReferralSetting()); db.session.commit()
         if not PaymentSetting.query.first(): db.session.add(PaymentSetting(id=1)); db.session.commit()
         if not SystemSetting.query.first(): db.session.add(SystemSetting(id=1)); db.session.commit()
+        if not BrandingSetting.query.first(): db.session.add(BrandingSetting(id=1)); db.session.commit()
     app.run(port=5000, debug=False)

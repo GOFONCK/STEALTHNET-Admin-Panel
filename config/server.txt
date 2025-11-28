@@ -1,0 +1,74 @@
+server {
+
+    server_name ad.trendbot.space; # ❗️ ВАШ IP-АДРЕС СЮДА
+
+
+
+    # --- 1. ОБРАБОТКА БЭКЕНДА ---
+
+    # Любой запрос, начинающийся с /api/...
+
+    location /api/ {
+
+        # 127.0.0.1:5000 — это Gunicorn, который мы запустили
+
+        proxy_pass http://127.0.0.1:5000;
+
+
+
+        # Стандартные заголовки, чтобы бэкенд "понимал", кто к нему пришел
+
+        proxy_set_header Host $host;
+
+        proxy_set_header X-Real-IP $remote_addr;
+
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+    }
+      # --- 2. ОБРАБОТКА ФРОНТЕНДА ---
+
+    # Любой другой запрос (напр. / или /login или /dashboard)
+
+    location / {
+
+        # Путь к "собранному" React-проекту
+
+        root /var/www/stealthnet-client/build;
+
+
+
+        # Сначала ищем файл, если не нашли - отдаем index.html
+        # (React Router сам разберется, что показать)
+        try_files $uri $uri/ /index.html;
+
+    }
+
+
+    listen 443 ssl;
+    ssl_certificate /etc/letsencrypt/live/ad.trendbot.space/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ad.trendbot.space/privkey.pem;
+    
+    # Базовая SSL конфигурация (если файл options-ssl-nginx.conf отсутствует)
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    
+    # Если файл существует, можно раскомментировать:
+    # include /etc/letsencrypt/options-ssl-nginx.conf;
+    # ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+}
+server {
+    if ($host = ad.trendbot.space) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+
+    listen 80;
+
+    server_name ad.trendbot.space;
+    return 404; # managed by Certbot
+
+
+}

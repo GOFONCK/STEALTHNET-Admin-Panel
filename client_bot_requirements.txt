@@ -1,0 +1,5 @@
+python-telegram-bot>=20.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+gunicorn>=21.2.0
+

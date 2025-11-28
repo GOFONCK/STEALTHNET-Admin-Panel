@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>StealthNET - Кабинет подписки</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.95);
+            --glass-border: rgba(15, 23, 42, 0.08);
+            --glass-blur: saturate(180%) blur(18px);
+            --text-primary: #0f172a;
+            --text-secondary: #64748b;
+            --accent-primary: #6366f1;
+            --accent-primary-hover: #4f46e5;
+            --accent-secondary: #8b5cf6;
+            --accent-green: #10b981;
+            --accent-green-hover: #059669;
+            --accent-red: #ef4444;
+            --accent-red-hover: #dc2626;
+            --accent-purple: #a855f7;
+            --accent-blue: #3b82f6;
+            --shadow: 0 25px 60px rgba(15, 23, 42, 0.12);
+            --shadow-colored: 0 10px 40px rgba(99, 102, 241, 0.25);
+            --surface-muted: rgba(15, 23, 42, 0.04);
+            --surface-strong: rgba(99, 102, 241, 0.12);
+            --gradient-primary: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+            --gradient-secondary: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+            --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 100%);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
+            background-attachment: fixed;
+            min-height: 100vh;
+            padding: 20px;
+            color: var(--text-primary);
+            position: relative;
+        }
+
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 20% 30%, rgba(99, 102, 241, 0.3), transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(139, 92, 246, 0.25), transparent 50%),
+                radial-gradient(circle at 50% 50%, rgba(236, 72, 153, 0.15), transparent 60%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(1px);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-radius: 24px;
+            padding: 30px 20px;
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--gradient-primary);
+            z-index: 1;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-radius: 16px;
+            padding: 6px;
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--shadow);
+        }
+
+        .tab {
+            background: transparent;
+            color: var(--text-secondary);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .tab.active {
+            background: var(--gradient-primary);
+            color: white;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .tab:hover:not(.active) {
+            background: var(--surface-muted);
+            color: var(--text-primary);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-radius: 24px;
+            padding: 28px;
+            margin-bottom: 20px;
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--shadow);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 30px 70px rgba(15, 23, 42, 0.15), 0 0 0 1px rgba(99, 102, 241, 0.1);
+            border-color: rgba(99, 102, 241, 0.2);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 15px;
+        }
+
+        .status-active {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.15));
+            color: var(--accent-green);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            box-shadow: 0 2px 10px rgba(16, 185, 129, 0.2);
+        }
+
+        .status-inactive {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.15));
+            color: var(--accent-red);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            box-shadow: 0 2px 10px rgba(239, 68, 68, 0.2);
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .info-value {
+            color: var(--text-primary);
+            text-align: right;
+            font-weight: 600;
+        }
+
+        .traffic-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        .traffic-fill {
+            height: 100%;
+            background: var(--gradient-success);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            box-shadow: 0 2px 12px rgba(16, 185, 129, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .traffic-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .connect-button {
+            display: inline-block;
+            background: var(--gradient-primary);
+            color: white;
+            padding: 16px 32px;
+            border-radius: 16px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 16px;
+            margin: 10px 0;
+            box-shadow: 0 8px 30px rgba(99, 102, 241, 0.4);
+            transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+            text-align: center;
+            letter-spacing: 0.3px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .connect-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .connect-button:hover::before {
+            left: 100%;
+        }
+
+        .connect-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(99, 102, 241, 0.5);
+        }
+
+        .connect-button:active {
+            transform: translateY(0);
+        }
+
+        .credentials-section {
+            background: var(--surface-muted);
+            border-radius: 16px;
+            padding: 20px;
+            margin-top: 15px;
+            border: 1px solid var(--glass-border);
+        }
+
+        .credential-item {
+            margin-bottom: 12px;
+        }
+
+        .credential-label {
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 4px;
+        }
+
+        .credential-value {
+            font-family: 'Courier New', monospace;
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            padding: 12px;
+            border-radius: 12px;
+            word-break: break-all;
+            font-size: 12px;
+            border: 1px solid var(--glass-border);
+            max-height: 100px;
+            overflow-y: auto;
+            color: var(--text-primary);
+        }
+
+        .copy-button {
+            background: var(--gradient-secondary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 8px;
+            width: 100%;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.35);
+        }
+
+        .copy-button:hover {
+            background: var(--gradient-primary);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
+        }
+
+        .copy-button:active {
+            transform: translateY(0);
+        }
+
+        .server-config-item {
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 4px 20px rgba(15, 23, 42, 0.08);
+            transition: all 0.2s ease;
+        }
+
+        .server-config-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(15, 23, 42, 0.12);
+            border-color: var(--accent-primary);
+        }
+
+        .server-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .server-name {
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .server-location {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+        }
+
+        .server-config {
+            background: var(--surface-muted);
+            padding: 14px;
+            border-radius: 12px;
+            margin-top: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            word-break: break-all;
+            max-height: 80px;
+            overflow-y: auto;
+            border: 1px solid var(--glass-border);
+            color: var(--text-primary);
+        }
+
+        .server-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .action-button {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 13px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-copy {
+            background: var(--gradient-secondary);
+            color: white;
+        }
+
+        .btn-copy:hover {
+            background: var(--gradient-primary);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-qr {
+            background: var(--gradient-success);
+            color: white;
+        }
+
+        .btn-qr:hover {
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+        }
+
+        .qr-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .qr-modal.active {
+            display: flex;
+        }
+
+        .qr-content {
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-radius: 24px;
+            padding: 30px;
+            text-align: center;
+            max-width: 300px;
+            width: 100%;
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--shadow);
+        }
+
+        .qr-content canvas {
+            margin: 20px auto;
+            display: block;
+        }
+
+        .close-qr {
+            background: linear-gradient(135deg, var(--accent-red), var(--accent-red-hover));
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 12px;
+            margin-top: 15px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.35);
+        }
+
+        .close-qr:hover {
+            background: linear-gradient(135deg, var(--accent-red-hover), #b91c1c);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.45);
+        }
+
+        .region-filter {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .region-chip {
+            background: var(--surface-muted);
+            padding: 8px 16px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--glass-border);
+            transition: all 0.2s;
+            color: var(--text-secondary);
+        }
+
+        .region-chip:hover {
+            background: var(--surface-strong);
+            color: var(--accent-primary);
+        }
+
+        .region-chip.active {
+            background: var(--gradient-primary);
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: white;
+        }
+
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #6b7280;
+        }
+
+        .subscription-url-section {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.08), rgba(236, 72, 153, 0.06));
+            border-left: 4px solid;
+            border-image: var(--gradient-primary) 1;
+            padding: 20px;
+            border-radius: 16px;
+            margin-top: 15px;
+            border: 1px solid var(--glass-border);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .subscription-url-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--gradient-primary);
+            opacity: 0.05;
+            z-index: 0;
+        }
+
+        .subscription-url-section > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        .subscription-url {
+            font-family: 'Courier New', monospace;
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            padding: 14px;
+            border-radius: 12px;
+            word-break: break-all;
+            font-size: 11px;
+            border: 1px solid var(--glass-border);
+            margin-top: 12px;
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 StealthNET VPN</h1>
+            <p>Кабинет подписки</p>
+        </div>
+
+        <div id="loading" class="loading">
+            <p>Загрузка данных...</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Табы навигации -->
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('overview')">📊 Обзор</button>
+                <button class="tab" onclick="switchTab('servers')">🌐 Серверы</button>
+                <button class="tab" onclick="switchTab('credentials')">🔐 Доступ</button>
+            </div>
+
+            <!-- Вкладка: Обзор -->
+            <div id="tab-overview" class="tab-content active">
+                <!-- Статус подписки -->
+                <div class="card">
+                    <div id="status-badge" class="status-badge"></div>
+                    <div id="subscription-info"></div>
+                </div>
+
+                <!-- Ссылка подключения -->
+                <div id="connect-section" class="card" style="display: none;">
+                    <h3 style="margin-bottom: 15px;">🚀 Подключение к VPN</h3>
+                    <div class="subscription-url-section">
+                        <p style="color: #6b7280; margin-bottom: 10px; font-size: 14px;">
+                            Используйте эту ссылку для автоматического подключения всех серверов в вашем VPN клиенте
+                        </p>
+                        <div class="subscription-url" id="subscription-url-text"></div>
+                        <button class="copy-button" onclick="copySubscriptionUrl()">📋 Копировать ссылку подписки</button>
+                        <a id="connect-button" class="connect-button" href="#" target="_blank" style="margin-top: 10px;">
+                            🔗 Открыть в клиенте
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Информация о тарифе -->
+                <div id="tariff-section" class="card" style="display: none;">
+                    <h3 style="margin-bottom: 15px;">💎 Тариф</h3>
+                    <div id="tariff-info"></div>
+                </div>
+            </div>
+
+            <!-- Вкладка: Серверы -->
+            <div id="tab-servers" class="tab-content">
+                <div class="card">
+                    <h3 style="margin-bottom: 15px;">🌐 Конфигурации серверов</h3>
+                    <div id="region-filters" class="region-filter"></div>
+                    <div id="servers-list"></div>
+                    <div id="servers-empty" class="empty-state" style="display: none;">
+                        <p>Серверы не найдены</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Вкладка: Доступ -->
+            <div id="tab-credentials" class="tab-content">
+                <div class="card">
+                    <h3 style="margin-bottom: 15px;">🔐 Данные для входа на сайте</h3>
+                    <div class="credentials-section">
+                        <div class="credential-item">
+                            <div class="credential-label">Логин (Email)</div>
+                            <div class="credential-value" id="login-value"></div>
+                            <button class="copy-button" onclick="copyToClipboard('login-value')">Копировать</button>
+                        </div>
+                        <div class="credential-item">
+                            <div class="credential-label">Пароль</div>
+                            <div class="credential-value" id="password-value"></div>
+                            <button class="copy-button" onclick="copyToClipboard('password-value')">Копировать</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <!-- QR код модальное окно -->
+    <div id="qr-modal" class="qr-modal">
+        <div class="qr-content">
+            <h3 id="qr-title"></h3>
+            <canvas id="qr-canvas"></canvas>
+            <button class="close-qr" onclick="closeQR()">Закрыть</button>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        const API_URL = window.API_URL || 'https://panel.stealthnet.app';
+        let userToken = null;
+        let userData = null;
+        let allServers = [];
+        let selectedRegion = 'all';
+
+        function switchTab(tabName) {
+            // Скрываем все вкладки
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Показываем выбранную вкладку
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+            event.target.classList.add('active');
+
+            // Если переключились на серверы и еще не загружены - загружаем
+            if (tabName === 'servers' && allServers.length === 0 && userToken) {
+                loadServers();
+            }
+        }
+
+        async function getTokenFromTelegramId() {
+            try {
+                const user = tg.initDataUnsafe?.user;
+                if (!user || !user.id) return null;
+
+                const response = await fetch(`${API_URL}/api/bot/get-token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ telegram_id: user.id })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.token;
+                }
+            } catch (e) {
+                console.error('Error getting token:', e);
+            }
+            return null;
+        }
+
+        async function loadUserData() {
+            try {
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('content').style.display = 'none';
+                document.getElementById('error').style.display = 'none';
+
+                userToken = await getTokenFromTelegramId();
+                if (!userToken) {
+                    throw new Error('Не удалось получить токен авторизации');
+                }
+
+                const response = await fetch(`${API_URL}/api/client/me`, {
+                    headers: { 'Authorization': `Bearer ${userToken}` }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки данных');
+                }
+
+                const data = await response.json();
+                userData = data.response || data;
+
+                const user = tg.initDataUnsafe?.user;
+                let credentials = null;
+                if (user && user.id) {
+                    const credResponse = await fetch(`${API_URL}/api/bot/get-credentials`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ telegram_id: user.id })
+                    });
+                    if (credResponse.ok) {
+                        credentials = await credResponse.json();
+                    }
+                }
+
+                displayUserData(userData, credentials);
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = 'Ошибка загрузки данных: ' + error.message;
+            }
+        }
+
+        function displayUserData(userData, credentials) {
+            const isActive = userData.activeInternalSquads && userData.activeInternalSquads.length > 0;
+            const expireAt = userData.expireAt;
+            const subscriptionUrl = userData.subscriptionUrl || '';
+
+            const statusBadge = document.getElementById('status-badge');
+            statusBadge.className = `status-badge ${isActive ? 'status-active' : 'status-inactive'}`;
+            statusBadge.textContent = isActive ? '✅ Активна' : '❌ Не активна';
+
+            let subscriptionInfo = '';
+            if (isActive && expireAt) {
+                const expireDate = new Date(expireAt);
+                const daysLeft = Math.ceil((expireDate - new Date()) / (1000 * 60 * 60 * 24));
+                
+                subscriptionInfo += `
+                    <div class="info-row">
+                        <span class="info-label">Истекает:</span>
+                        <span class="info-value">${expireDate.toLocaleDateString('ru-RU')} ${expireDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Осталось дней:</span>
+                        <span class="info-value">${daysLeft}</span>
+                    </div>
+                `;
+
+                const usedTraffic = userData.usedTrafficBytes || 0;
+                const trafficLimit = userData.trafficLimitBytes || 0;
+                
+                subscriptionInfo += '<div class="info-row" style="margin-top: 15px;"><span class="info-label">Трафик:</span></div>';
+                if (trafficLimit === 0) {
+                    subscriptionInfo += '<div class="info-value" style="text-align: left; margin-top: 5px;">♾️ Безлимитный</div>';
+                } else {
+                    const usedGB = (usedTraffic / (1024 ** 3)).toFixed(2);
+                    const limitGB = (trafficLimit / (1024 ** 3)).toFixed(2);
+                    const percentage = ((usedTraffic / trafficLimit) * 100).toFixed(1);
+                    
+                    subscriptionInfo += `
+                        <div style="margin-top: 8px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                                <span>${usedGB} GB / ${limitGB} GB</span>
+                                <span>${percentage}%</span>
+                            </div>
+                            <div class="traffic-bar">
+                                <div class="traffic-fill" style="width: ${percentage}%"></div>
+                            </div>
+                        </div>
+                    `;
+                }
+            } else {
+                subscriptionInfo = '<div class="info-value" style="text-align: left;">Активируйте триал или выберите тариф</div>';
+            }
+
+            document.getElementById('subscription-info').innerHTML = subscriptionInfo;
+
+            if (isActive && subscriptionUrl) {
+                document.getElementById('connect-section').style.display = 'block';
+                document.getElementById('connect-button').href = subscriptionUrl;
+                document.getElementById('subscription-url-text').textContent = subscriptionUrl;
+            }
+
+            if (credentials && credentials.email) {
+                document.getElementById('login-value').textContent = credentials.email;
+                document.getElementById('password-value').textContent = credentials.password || 'Недоступен';
+            }
+
+            if (userData.squadName || userData.activeInternalSquads) {
+                document.getElementById('tariff-section').style.display = 'block';
+                const squadName = userData.squadName || 'Не указан';
+                document.getElementById('tariff-info').innerHTML = `
+                    <div><strong>Тариф:</strong> ${squadName}</div>
+                `;
+            }
+        }
+
+        async function loadServers() {
+            if (!userToken) return;
+
+            try {
+                const response = await fetch(`${API_URL}/api/client/nodes`, {
+                    headers: { 'Authorization': `Bearer ${userToken}` }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки серверов');
+                }
+
+                const data = await response.json();
+                const nodes = data.response?.activeNodes || data.activeNodes || [];
+
+                allServers = nodes;
+                displayServers(nodes);
+
+            } catch (error) {
+                console.error('Error loading servers:', error);
+                document.getElementById('servers-list').innerHTML = '<div class="empty-state">Ошибка загрузки серверов</div>';
+            }
+        }
+
+        function displayServers(servers) {
+            if (servers.length === 0) {
+                document.getElementById('servers-empty').style.display = 'block';
+                document.getElementById('servers-list').innerHTML = '';
+                return;
+            }
+
+            document.getElementById('servers-empty').style.display = 'none';
+
+            // Получаем уникальные регионы
+            const regions = ['all', ...new Set(servers.map(s => s.regionName || s.countryCode || 'Unknown'))];
+            
+            // Создаем фильтры регионов
+            const filtersHtml = regions.map(region => `
+                <div class="region-chip ${selectedRegion === region ? 'active' : ''}" 
+                     onclick="filterByRegion('${region}')">
+                    ${region === 'all' ? '🌍 Все' : region}
+                </div>
+            `).join('');
+            document.getElementById('region-filters').innerHTML = filtersHtml;
+
+            // Фильтруем серверы
+            const filteredServers = selectedRegion === 'all' 
+                ? servers 
+                : servers.filter(s => (s.regionName || s.countryCode || 'Unknown') === selectedRegion);
+
+            // Отображаем серверы
+            const serversHtml = filteredServers.map((node, index) => {
+                const config = node.config || node.subscriptionUrl || '';
+                const name = node.name || `Сервер ${index + 1}`;
+                const location = node.location || node.regionName || node.countryCode || '';
+
+                return `
+                    <div class="server-config-item">
+                        <div class="server-header">
+                            <div>
+                                <div class="server-name">${name}</div>
+                                <div class="server-location">${location}</div>
+                            </div>
+                        </div>
+                        ${config ? `
+                            <div class="server-config" id="config-${index}">${config}</div>
+                            <div class="server-actions">
+                                <button class="action-button btn-copy" onclick="copyConfig(${index})">📋 Копировать</button>
+                                <button class="action-button btn-qr" onclick="showQR(${index})">📱 QR код</button>
+                            </div>
+                        ` : '<p style="color: #6b7280; font-size: 12px;">Конфигурация недоступна</p>'}
+                    </div>
+                `;
+            }).join('');
+
+            document.getElementById('servers-list').innerHTML = serversHtml;
+        }
+
+        function filterByRegion(region) {
+            selectedRegion = region;
+            displayServers(allServers);
+        }
+
+        function copyConfig(index) {
+            const configElement = document.getElementById(`config-${index}`);
+            if (!configElement) return;
+
+            const config = configElement.textContent;
+            navigator.clipboard.writeText(config).then(() => {
+                tg.showAlert('Конфигурация скопирована!');
+            }).catch(err => {
+                console.error('Error copying:', err);
+            });
+        }
+
+        function showQR(index) {
+            const configElement = document.getElementById(`config-${index}`);
+            if (!configElement) return;
+
+            const config = configElement.textContent;
+            const modal = document.getElementById('qr-modal');
+            const canvas = document.getElementById('qr-canvas');
+            const title = document.getElementById('qr-title');
+
+            title.textContent = 'QR код для подключения';
+            modal.classList.add('active');
+
+            QRCode.toCanvas(canvas, config, {
+                width: 250,
+                margin: 2
+            }, (error) => {
+                if (error) {
+                    console.error('QR code error:', error);
+                    tg.showAlert('Ошибка генерации QR кода');
+                }
+            });
+        }
+
+        function closeQR() {
+            document.getElementById('qr-modal').classList.remove('active');
+        }
+
+        function copySubscriptionUrl() {
+            const url = document.getElementById('subscription-url-text').textContent;
+            navigator.clipboard.writeText(url).then(() => {
+                tg.showAlert('Ссылка подписки скопирована!');
+            });
+        }
+
+        function copyToClipboard(elementId) {
+            const element = document.getElementById(elementId);
+            const text = element.textContent;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                tg.showAlert('Скопировано!');
+            }).catch(err => {
+                console.error('Error copying:', err);
+            });
+        }
+
+        loadUserData();
+    </script>
+</body>
+</html>

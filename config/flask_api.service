@@ -1,0 +1,18 @@
+[Unit]
+Description=StealthNET Flask API (Gunicorn)
+After=network.target
+
+[Service]
+Type=notify
+User=root
+WorkingDirectory=/path/to/your/api
+Environment="PATH=/path/to/your/venv/bin"
+ExecStart=/path/to/your/venv/bin/gunicorn -c config/gunicorn_config.py app:app
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
