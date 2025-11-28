@@ -1,0 +1,73 @@
+"""
+Скрипт: добавляет столбцы platega_merchant_id и platega_secret в таблицу payment_setting
+
+Запуск:
+    python migrate_add_platega_fields.py
+    или
+    python3 migrate_add_platega_fields.py
+"""
+import sqlite3
+import sys
+from pathlib import Path
+
+
+def find_database():
+    """Определяем путь к БД из стандартных размещений."""
+    for db_path in [
+        Path("instance/stealthnet.db"),
+        Path("stealthnet.db"),
+        Path("/var/www/stealthnet-api/instance/stealthnet.db"),
+        Path("/var/www/stealthnet-api/stealthnet.db"),
+    ]:
+        if db_path.exists():
+            return db_path
+    return None
+
+
+db_path = find_database()
+if not db_path:
+    print("⚠️ База данных не найдена. Укажите путь вручную, если она в другом месте.")
+    sys.exit(1)
+
+print(f"➡️ Используем БД: {db_path.absolute()}")
+
+conn = sqlite3.connect(str(db_path))
+cursor = conn.cursor()
+
+try:
+    cursor.execute("PRAGMA table_info(payment_setting)")
+    columns = [row[1] for row in cursor.fetchall()]
+    print(f"Текущие поля payment_setting: {', '.join(columns)}")
+
+    changes_made = False
+
+    if "platega_merchant_id" not in columns:
+        print("➕ Добавляем столбец platega_merchant_id...")
+        cursor.execute("ALTER TABLE payment_setting ADD COLUMN platega_merchant_id TEXT")
+        changes_made = True
+    else:
+        print("✓ platega_merchant_id уже существует")
+
+    if "platega_secret" not in columns:
+        print("➕ Добавляем столбец platega_secret...")
+        cursor.execute("ALTER TABLE payment_setting ADD COLUMN platega_secret TEXT")
+        changes_made = True
+    else:
+        print("✓ platega_secret уже существует")
+
+    if changes_made:
+        conn.commit()
+        print("✅ Миграция выполнена.")
+    else:
+        print("ℹ️ Изменений не требуется.")
+
+    cursor.execute("PRAGMA table_info(payment_setting)")
+    final_columns = [row[1] for row in cursor.fetchall()]
+    print(f"Итоговые поля payment_setting: {', '.join(final_columns)}")
+
+except sqlite3.Error as e:
+    print(f"❌ Ошибка миграции: {e}")
+    conn.rollback()
+    sys.exit(1)
+finally:
+    conn.close()

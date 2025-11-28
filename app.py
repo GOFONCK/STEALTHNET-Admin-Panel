@@ -142,6 +142,8 @@ class PaymentSetting(db.Model):
     crystalpay_api_key = db.Column(db.Text, nullable=True)
     crystalpay_api_secret = db.Column(db.Text, nullable=True)
     heleket_api_key = db.Column(db.Text, nullable=True)
+    platega_merchant_id = db.Column(db.Text, nullable=True)
+    platega_secret = db.Column(db.Text, nullable=True)
     telegram_bot_token = db.Column(db.Text, nullable=True)
     yookassa_api_key = db.Column(db.Text, nullable=True)  # Устаревшее поле, оставляем для совместимости
     yookassa_shop_id = db.Column(db.Text, nullable=True)  # Идентификатор магазина YooKassa
@@ -259,6 +261,69 @@ def sync_subscription_to_bot_in_background(app_context, remnawave_uuid):
             print(f"⚠️ Background sync error for user {remnawave_uuid}: {e}")
             import traceback
             traceback.print_exc()
+
+def apply_successful_payment(payment: Payment):
+    """
+    Унифицированная обработка успешной оплаты:
+    продлевает подписку в RemnaWave, списывает промокод, очищает кэш и триггерит синхронизацию с ботом.
+    Возвращает True, если обработка выполнена, иначе False.
+    """
+    if not payment or payment.status == 'PAID':
+        return False
+
+    u = db.session.get(User, payment.user_id)
+    t = db.session.get(Tariff, payment.tariff_id)
+    if not u or not t:
+        print(f"⚠️ apply_successful_payment: User or Tariff missing for payment {payment.order_id}")
+        return False
+
+    try:
+        h = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
+        live = requests.get(f"{API_URL}/api/users/{u.remnawave_uuid}", headers=h).json().get('response', {})
+        curr_exp = datetime.fromisoformat(live.get('expireAt'))
+        new_exp = max(datetime.now(timezone.utc), curr_exp) + timedelta(days=t.duration_days)
+
+        squad_id = t.squad_id if t.squad_id else DEFAULT_SQUAD_ID
+
+        patch_payload = {
+            "uuid": u.remnawave_uuid,
+            "expireAt": new_exp.isoformat(),
+            "activeInternalSquads": [squad_id]
+        }
+
+        if t.traffic_limit_bytes and t.traffic_limit_bytes > 0:
+            patch_payload["trafficLimitBytes"] = t.traffic_limit_bytes
+            patch_payload["trafficLimitStrategy"] = "NO_RESET"
+
+        requests.patch(f"{API_URL}/api/users", headers={"Content-Type": "application/json", **h}, json=patch_payload)
+
+        if payment.promo_code_id:
+            promo = db.session.get(PromoCode, payment.promo_code_id)
+            if promo and promo.uses_left > 0:
+                promo.uses_left -= 1
+
+        payment.status = 'PAID'
+        db.session.commit()
+        cache.delete(f'live_data_{u.remnawave_uuid}')
+        cache.delete(f'nodes_{u.remnawave_uuid}')
+
+        if BOT_API_URL and BOT_API_TOKEN:
+            app_context = app.app_context()
+            import threading
+            sync_thread = threading.Thread(
+                target=sync_subscription_to_bot_in_background,
+                args=(app_context, u.remnawave_uuid),
+                daemon=True
+            )
+            sync_thread.start()
+            print(f"Started background sync thread for user {u.remnawave_uuid}")
+
+        return True
+    except Exception as e:
+        print(f"⚠️ apply_successful_payment error for order {payment.order_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 def apply_referrer_bonus_in_background(app_context, referrer_uuid, bonus_days):
     with app_context: 
@@ -1955,6 +2020,8 @@ def pay_settings(current_admin):
         s.crystalpay_api_key = encrypt_key(d.get('crystalpay_api_key', ''))
         s.crystalpay_api_secret = encrypt_key(d.get('crystalpay_api_secret', ''))
         s.heleket_api_key = encrypt_key(d.get('heleket_api_key', ''))
+        s.platega_merchant_id = encrypt_key(d.get('platega_merchant_id', ''))
+        s.platega_secret = encrypt_key(d.get('platega_secret', ''))
         s.telegram_bot_token = encrypt_key(d.get('telegram_bot_token', ''))
         s.yookassa_shop_id = encrypt_key(d.get('yookassa_shop_id', ''))
         s.yookassa_secret_key = encrypt_key(d.get('yookassa_secret_key', ''))
@@ -1963,6 +2030,8 @@ def pay_settings(current_admin):
         "crystalpay_api_key": decrypt_key(s.crystalpay_api_key), 
         "crystalpay_api_secret": decrypt_key(s.crystalpay_api_secret),
         "heleket_api_key": decrypt_key(s.heleket_api_key),
+        "platega_merchant_id": decrypt_key(s.platega_merchant_id),
+        "platega_secret": decrypt_key(s.platega_secret),
         "telegram_bot_token": decrypt_key(s.telegram_bot_token),
         "yookassa_shop_id": decrypt_key(s.yookassa_shop_id),
         "yookassa_secret_key": decrypt_key(s.yookassa_secret_key)
@@ -2057,6 +2126,55 @@ def create_payment():
             payment_url = result.get('url')
             payment_system_id = result.get('uuid')
             
+        elif payment_provider == 'platega':
+            merchant_id = decrypt_key(s.platega_merchant_id)
+            platega_secret = decrypt_key(s.platega_secret)
+            if not merchant_id or not platega_secret or merchant_id == "DECRYPTION_ERROR" or platega_secret == "DECRYPTION_ERROR":
+                return jsonify({"message": "Platega credentials not configured"}), 500
+
+            platega_method = request.json.get('platega_payment_method', 2)
+            if isinstance(platega_method, str) and platega_method.isdigit():
+                platega_method = int(platega_method)
+            if not isinstance(platega_method, int):
+                return jsonify({"message": "Invalid platega_payment_method, expected integer"}), 400
+
+            platega_payload = {
+                "paymentMethod": platega_method,
+                "paymentDetails": {
+                    "amount": round(final_amount, 2),
+                    "currency": info['c']
+                },
+                "description": f"Подписка StealthNET - {t.name} ({t.duration_days} дней)",
+                "return": f"{YOUR_SERVER_IP_OR_DOMAIN}/dashboard/subscription",
+                "failedUrl": f"{YOUR_SERVER_IP_OR_DOMAIN}/dashboard/subscription?status=failed",
+                "payload": order_id  # идентификатор вернётся в вебхуке
+            }
+
+            headers = {
+                "Content-Type": "application/json",
+                "X-MerchantId": merchant_id,
+                "X-Secret": platega_secret
+            }
+
+            try:
+                resp = requests.post(
+                    "https://app.platega.io/transaction/process",
+                    json=platega_payload,
+                    headers=headers,
+                    timeout=30
+                )
+                resp.raise_for_status()
+                resp_json = resp.json()
+            except requests.exceptions.RequestException as e:
+                print(f"Platega API error: {e}")
+                return jsonify({"message": f"Platega API Error: {e}"}), 500
+
+            payment_url = resp_json.get('redirect') or resp_json.get('return')
+            payment_system_id = resp_json.get('transactionId') or resp_json.get('id')
+            platega_status = str(resp_json.get('status', '')).upper()
+            if platega_status and platega_status not in ['CREATED', 'PENDING', 'INPROGRESS', 'CONFIRMED']:
+                print(f"Platega warning: unexpected status {platega_status} for order {order_id}")
+
         elif payment_provider == 'telegram_stars':
             # Telegram Stars API
             bot_token = decrypt_key(s.telegram_bot_token)
@@ -2569,6 +2687,39 @@ def yookassa_webhook():
         import traceback
         traceback.print_exc()
         return jsonify({"error": False}), 200  # Всегда возвращаем 200, чтобы YooKassa не повторял запрос
+
+@app.route('/api/webhook/platega', methods=['POST'])
+def platega_webhook():
+    """Webhook Platega: статус приходит вместе с transactionId и payload (order_id)."""
+    try:
+        data = request.json or {}
+        transaction_data = data.get('transaction') or data
+
+        transaction_id = transaction_data.get('transactionId') or transaction_data.get('id')
+        status = str(transaction_data.get('status', '')).upper()
+        order_id = transaction_data.get('payload') or transaction_data.get('order_id') or transaction_data.get('orderId')
+
+        payment = None
+        if order_id:
+            payment = Payment.query.filter_by(order_id=order_id).first()
+        if not payment and transaction_id:
+            payment = Payment.query.filter_by(payment_system_id=transaction_id, payment_provider='platega').first()
+
+        if not payment or payment.status == 'PAID':
+            return jsonify({"error": False}), 200
+
+        success_statuses = {'CONFIRMED', 'PAID', 'SUCCESS', 'SUCCEEDED'}
+        if status in success_statuses:
+            apply_successful_payment(payment)
+        else:
+            print(f"Platega webhook: skip status={status} for order {payment.order_id}")
+
+        return jsonify({"error": False}), 200
+    except Exception as e:
+        print(f"Platega webhook error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": False}), 200
 
 @app.route('/api/webhook/telegram', methods=['POST'])
 def telegram_webhook():

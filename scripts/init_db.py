@@ -7,7 +7,7 @@
 - User: telegram_id, telegram_username, encrypted_password, referral_code, referrer_id, preferred_lang, preferred_currency
 - Tariff: badge, tier, traffic_limit_bytes, squad_id
 - Payment: promo_code_id, payment_provider, payment_system_id
-- PaymentSetting: heleket_api_key, telegram_bot_token, yookassa_shop_id, yookassa_secret_key
+- PaymentSetting: heleket_api_key, platega_merchant_id, platega_secret, telegram_bot_token, yookassa_shop_id, yookassa_secret_key
 - BrandingSetting: все поля брендинга (logo_url, site_name, dashboard_* и т.д.)
 - SystemSetting: default_language, default_currency
 - ReferralSetting: trial_squad_id
@@ -152,6 +152,7 @@ def init_database():
                 print("   Доступные платежные системы:")
                 print("   - CrystalPay (crystalpay_api_key, crystalpay_api_secret)")
                 print("   - Heleket (heleket_api_key)")
+                print("   - Platega (platega_merchant_id, platega_secret)")
                 print("   - Telegram Stars (telegram_bot_token)")
                 print("   - YooKassa (yookassa_shop_id, yookassa_secret_key)")
             else:
