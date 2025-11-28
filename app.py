@@ -2,6 +2,7 @@ import os
 from flask import Flask, request, jsonify, render_template, current_app
 from flask_cors import CORS 
 import requests
+import json
 from datetime import datetime, timedelta, timezone 
 from sqlalchemy import func 
 
@@ -144,6 +145,7 @@ class PaymentSetting(db.Model):
     heleket_api_key = db.Column(db.Text, nullable=True)
     platega_merchant_id = db.Column(db.Text, nullable=True)
     platega_secret = db.Column(db.Text, nullable=True)
+    platega_allowed_methods = db.Column(db.Text, nullable=True)  # JSON-массив разрешенных методов
     telegram_bot_token = db.Column(db.Text, nullable=True)
     yookassa_api_key = db.Column(db.Text, nullable=True)  # Устаревшее поле, оставляем для совместимости
     yookassa_shop_id = db.Column(db.Text, nullable=True)  # Идентификатор магазина YooKassa
@@ -2017,21 +2019,35 @@ def pay_settings(current_admin):
     if not s.id: db.session.add(s); db.session.commit()
     if request.method == 'POST':
         d = request.json
+        platega_methods = d.get('platega_allowed_methods', [])
+        if isinstance(platega_methods, str):
+            try:
+                platega_methods = json.loads(platega_methods)
+            except Exception:
+                platega_methods = []
+        if not isinstance(platega_methods, list):
+            platega_methods = []
         s.crystalpay_api_key = encrypt_key(d.get('crystalpay_api_key', ''))
         s.crystalpay_api_secret = encrypt_key(d.get('crystalpay_api_secret', ''))
         s.heleket_api_key = encrypt_key(d.get('heleket_api_key', ''))
         s.platega_merchant_id = encrypt_key(d.get('platega_merchant_id', ''))
         s.platega_secret = encrypt_key(d.get('platega_secret', ''))
+        s.platega_allowed_methods = json.dumps(platega_methods)
         s.telegram_bot_token = encrypt_key(d.get('telegram_bot_token', ''))
         s.yookassa_shop_id = encrypt_key(d.get('yookassa_shop_id', ''))
         s.yookassa_secret_key = encrypt_key(d.get('yookassa_secret_key', ''))
         db.session.commit()
+    try:
+        platega_methods = json.loads(s.platega_allowed_methods) if s.platega_allowed_methods else []
+    except Exception:
+        platega_methods = []
     return jsonify({
         "crystalpay_api_key": decrypt_key(s.crystalpay_api_key), 
         "crystalpay_api_secret": decrypt_key(s.crystalpay_api_secret),
         "heleket_api_key": decrypt_key(s.heleket_api_key),
         "platega_merchant_id": decrypt_key(s.platega_merchant_id),
         "platega_secret": decrypt_key(s.platega_secret),
+        "platega_allowed_methods": platega_methods,
         "telegram_bot_token": decrypt_key(s.telegram_bot_token),
         "yookassa_shop_id": decrypt_key(s.yookassa_shop_id),
         "yookassa_secret_key": decrypt_key(s.yookassa_secret_key)
@@ -2131,12 +2147,20 @@ def create_payment():
             platega_secret = decrypt_key(s.platega_secret)
             if not merchant_id or not platega_secret or merchant_id == "DECRYPTION_ERROR" or platega_secret == "DECRYPTION_ERROR":
                 return jsonify({"message": "Platega credentials not configured"}), 500
+            
+            try:
+                allowed_methods = json.loads(s.platega_allowed_methods) if s.platega_allowed_methods else []
+            except Exception:
+                allowed_methods = []
+            default_method = allowed_methods[0] if allowed_methods else 2
 
-            platega_method = request.json.get('platega_payment_method', 2)
+            platega_method = request.json.get('platega_payment_method', default_method)
             if isinstance(platega_method, str) and platega_method.isdigit():
                 platega_method = int(platega_method)
             if not isinstance(platega_method, int):
                 return jsonify({"message": "Invalid platega_payment_method, expected integer"}), 400
+            if allowed_methods and platega_method not in allowed_methods:
+                return jsonify({"message": "This platega_payment_method is not allowed"}), 400
 
             platega_payload = {
                 "paymentMethod": platega_method,
@@ -2720,6 +2744,22 @@ def platega_webhook():
         import traceback
         traceback.print_exc()
         return jsonify({"error": False}), 200
+
+@app.route('/api/public/platega-methods', methods=['GET'])
+def public_platega_methods():
+    """Публичный список разрешенных методов Platega (без чувствительных данных)."""
+    try:
+        s = PaymentSetting.query.first()
+        if not s:
+            return jsonify({"methods": []}), 200
+        try:
+            allowed_methods = json.loads(s.platega_allowed_methods) if s.platega_allowed_methods else []
+        except Exception:
+            allowed_methods = []
+        return jsonify({"methods": allowed_methods}), 200
+    except Exception as e:
+        print(f"Platega public methods error: {e}")
+        return jsonify({"methods": []}), 200
 
 @app.route('/api/webhook/telegram', methods=['POST'])
 def telegram_webhook():

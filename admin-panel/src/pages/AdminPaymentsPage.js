@@ -8,6 +8,7 @@ function AdminPaymentsPage() {
     heleket_api_key: '',
     platega_merchant_id: '',
     platega_secret: '',
+    platega_allowed_methods: [],
     telegram_bot_token: ''
   });
   const [loading, setLoading] = useState(true);
@@ -34,6 +35,7 @@ function AdminPaymentsPage() {
         if (data.platega_merchant_id === "DECRYPTION_ERROR") data.platega_merchant_id = "";
         if (data.platega_secret === "DECRYPTION_ERROR") data.platega_secret = "";
         if (data.telegram_bot_token === "DECRYPTION_ERROR") data.telegram_bot_token = "";
+        if (!Array.isArray(data.platega_allowed_methods)) data.platega_allowed_methods = [];
         setSettings(data);
       } catch (e) { 
         setError(e.message); 
@@ -54,6 +56,15 @@ function AdminPaymentsPage() {
       ...prev,
       [name]: value
     }));
+  };
+
+  const handleTogglePlategaMethod = (methodId) => {
+    setSettings(prev => {
+      const allowed = Array.isArray(prev.platega_allowed_methods) ? prev.platega_allowed_methods : [];
+      const exists = allowed.includes(methodId);
+      const updated = exists ? allowed.filter(id => id !== methodId) : [...allowed, methodId];
+      return { ...prev, platega_allowed_methods: updated };
+    });
   };
 
   // --- 3. Сохранение настроек ---
@@ -164,6 +175,33 @@ function AdminPaymentsPage() {
                 onChange={handleChange} 
                 placeholder="Секрет Platega"
               />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group" style={{ width: '100%' }}>
+              <label>Разрешенные методы</label>
+              <div className="checkbox-list">
+                {[
+                  { id: 2, label: 'СБП QR (НСПК / QR)' },
+                  { id: 10, label: 'Карты (RUB) — МИР/Visa/Mastercard' },
+                  { id: 11, label: 'Карточный эквайринг' },
+                  { id: 12, label: 'Международный эквайринг' },
+                  { id: 13, label: 'Криптовалюта' },
+                ].map(method => (
+                  <label key={method.id} style={{ display: 'block', marginBottom: '6px' }}>
+                    <input
+                      type="checkbox"
+                      checked={Array.isArray(settings.platega_allowed_methods) && settings.platega_allowed_methods.includes(method.id)}
+                      onChange={() => handleTogglePlategaMethod(method.id)}
+                      style={{ marginRight: '8px' }}
+                    />
+                    {method.label}
+                  </label>
+                ))}
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                Эти методы будут доступны клиенту в окне оплаты Platega.
+              </p>
             </div>
           </div>
           

@@ -9,6 +9,14 @@ const currencyConfig = {
   usd: { field: 'price_usd', code: 'USD' }
 };
 
+const PLATEGA_METHOD_LABELS = {
+  2: 'СБП QR (НСПК / QR)',
+  10: 'Карты (RUB) — МИР/Visa/Mastercard',
+  11: 'Карточный эквайринг',
+  12: 'Международный эквайринг',
+  13: 'Криптовалюта'
+};
+
 const featurePresets = {
   basic: ['Безлимитный трафик', 'До 5 устройств', 'Базовый анти-DPI'],
   pro: ['Приоритетная скорость', 'До 10 устройств', 'Ротация IP-адресов'],
@@ -137,6 +145,7 @@ const TariffSection = () => {
   const [promoError, setPromoError] = useState(null);
   const [selectedTariffId, setSelectedTariffId] = useState(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [plategaMethods, setPlategaMethods] = useState([]);
 
   useEffect(() => {
     const fetchTariffs = async () => {
@@ -174,6 +183,21 @@ const TariffSection = () => {
       }
     };
     fetchTariffs();
+  }, []);
+
+  useEffect(() => {
+    const fetchPlategaMethods = async () => {
+      try {
+        const resp = await fetch('/api/public/platega-methods');
+        if (resp.ok) {
+          const data = await resp.json();
+          if (Array.isArray(data.methods)) setPlategaMethods(data.methods);
+        }
+      } catch (e) {
+        console.warn('Failed to load platega methods', e);
+      }
+    };
+    fetchPlategaMethods();
   }, []);
 
   const intlFormatter = useMemo(() => {
@@ -245,7 +269,7 @@ const TariffSection = () => {
     setShowPaymentModal(true);
   };
 
-  const handleCreatePayment = async (paymentProvider) => {
+  const handleCreatePayment = async (paymentProvider, plategaPaymentMethod = null) => {
     if (!selectedTariffId) return;
     
     setLoadingTariffId(selectedTariffId);
@@ -262,7 +286,8 @@ const TariffSection = () => {
         body: JSON.stringify({ 
           tariff_id: selectedTariffId,
           promo_code: appliedPromo && appliedPromo.type === 'PERCENT' ? appliedPromo.code : null,
-          payment_provider: paymentProvider
+          payment_provider: paymentProvider,
+          ...(paymentProvider === 'platega' && plategaPaymentMethod ? { platega_payment_method: plategaPaymentMethod } : {})
         })
       });
       const data = await response.json();
@@ -476,11 +501,26 @@ const TariffSection = () => {
               </button>
               <button
                 className="btn btn-primary"
-                onClick={() => handleCreatePayment('platega')}
+                onClick={() => handleCreatePayment('platega', Array.isArray(plategaMethods) && plategaMethods.length > 0 ? plategaMethods[0] : null)}
                 disabled={loadingTariffId === selectedTariffId}
               >
-                {loadingTariffId === selectedTariffId ? 'Создаем счёт…' : 'Platega (СБП/карта)'}
+                {loadingTariffId === selectedTariffId ? 'Создаем счёт…' : 'Platega'}
               </button>
+              {Array.isArray(plategaMethods) && plategaMethods.length > 0 && (
+                <div className="platega-methods-list">
+                  {plategaMethods.map((m) => (
+                    <button
+                      key={`platega-${m}`}
+                      className="btn btn-secondary"
+                      onClick={() => handleCreatePayment('platega', m)}
+                      disabled={loadingTariffId === selectedTariffId}
+                      style={{ width: '100%' }}
+                    >
+                      {loadingTariffId === selectedTariffId ? 'Создаем счёт…' : (PLATEGA_METHOD_LABELS[m] || `Platega ${m}`)}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div style={{ width: '100%' }}>
                 <button
                   className="btn btn-primary"
