@@ -6,6 +6,8 @@ function AdminPaymentsPage() {
     crystalpay_api_key: '',
     crystalpay_api_secret: '',
     heleket_api_key: '',
+    platega_merchant_id: '',
+    platega_secret: '',
     telegram_bot_token: ''
   });
   const [loading, setLoading] = useState(true);
@@ -29,6 +31,8 @@ function AdminPaymentsPage() {
         if (data.crystalpay_api_key === "DECRYPTION_ERROR") data.crystalpay_api_key = "";
         if (data.crystalpay_api_secret === "DECRYPTION_ERROR") data.crystalpay_api_secret = "";
         if (data.heleket_api_key === "DECRYPTION_ERROR") data.heleket_api_key = "";
+        if (data.platega_merchant_id === "DECRYPTION_ERROR") data.platega_merchant_id = "";
+        if (data.platega_secret === "DECRYPTION_ERROR") data.platega_secret = "";
         if (data.telegram_bot_token === "DECRYPTION_ERROR") data.telegram_bot_token = "";
         setSettings(data);
       } catch (e) { 
@@ -134,6 +138,31 @@ function AdminPaymentsPage() {
                 value={settings.heleket_api_key} 
                 onChange={handleChange} 
                 placeholder="API ключ Heleket..."
+              />
+            </div>
+          </div>
+          
+          {/* --- Platega --- */}
+          <h3 style={{marginTop: '30px'}}>Platega</h3>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Merchant ID (X-MerchantId)</label>
+              <input 
+                type="text" 
+                name="platega_merchant_id"
+                value={settings.platega_merchant_id} 
+                onChange={handleChange} 
+                placeholder="UUID из Platega"
+              />
+            </div>
+            <div className="form-group">
+              <label>Secret (X-Secret)</label>
+              <input 
+                type="text" 
+                name="platega_secret"
+                value={settings.platega_secret} 
+                onChange={handleChange} 
+                placeholder="Секрет Platega"
               />
             </div>
           </div>

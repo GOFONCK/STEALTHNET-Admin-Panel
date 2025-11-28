@@ -474,6 +474,13 @@ const TariffSection = () => {
               >
                 {loadingTariffId === selectedTariffId ? 'Создаем счёт…' : 'Heleket (Криптовалюты)'}
               </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => handleCreatePayment('platega')}
+                disabled={loadingTariffId === selectedTariffId}
+              >
+                {loadingTariffId === selectedTariffId ? 'Создаем счёт…' : 'Platega (СБП/карта)'}
+              </button>
               <div style={{ width: '100%' }}>
                 <button
                   className="btn btn-primary"
