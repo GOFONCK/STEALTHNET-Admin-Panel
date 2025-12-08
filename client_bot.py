@@ -3013,7 +3013,8 @@ async def select_tariff(update: Update, context: ContextTypes.DEFAULT_TYPE, tari
         'mulenpay': '💳 Mulenpay',
         'urlpay': '💳 UrlPay',
         'telegram_stars': '⭐ Telegram Stars',
-        'monobank': '💳 Monobank'
+        'monobank': '💳 Monobank',
+        'btcpayserver': '₿ BTCPayServer'
     }
     
     keyboard = []

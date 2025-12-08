@@ -48,10 +48,10 @@ app = Flask(__name__)
 # CORS
 CORS(app, resources={r"/api/.*": {
     "origins": [
-        "http://localhost:3000", 
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
+        "http://localhost:5000", 
+        "http://127.0.0.1:5000",
+        "http://localhost:5001",
+        "http://127.0.0.1:5001",
         YOUR_SERVER_IP_OR_DOMAIN,
         "https://stealthnet.app",
         "http://stealthnet.app"
@@ -182,6 +182,9 @@ class PaymentSetting(db.Model):
     urlpay_secret_key = db.Column(db.Text, nullable=True)  # Secret ключ UrlPay
     urlpay_shop_id = db.Column(db.Text, nullable=True)  # Shop ID UrlPay
     monobank_token = db.Column(db.Text, nullable=True)  # Токен Monobank
+    btcpayserver_url = db.Column(db.Text, nullable=True)  # URL BTCPayServer (например, https://btcpay.example.com)
+    btcpayserver_api_key = db.Column(db.Text, nullable=True)  # API ключ BTCPayServer
+    btcpayserver_store_id = db.Column(db.Text, nullable=True)  # Store ID BTCPayServer
 
 class SystemSetting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -2194,6 +2197,13 @@ def miniapp_payment_methods():
         if monobank_token and monobank_token != "DECRYPTION_ERROR":
             available.append({"id": "monobank", "name": "Monobank", "type": "card"})
         
+        # BTCPayServer
+        btcpayserver_url = decrypt_key(s.btcpayserver_url) if s.btcpayserver_url else None
+        btcpayserver_api_key = decrypt_key(s.btcpayserver_api_key) if s.btcpayserver_api_key else None
+        btcpayserver_store_id = decrypt_key(s.btcpayserver_store_id) if s.btcpayserver_store_id else None
+        if btcpayserver_url and btcpayserver_api_key and btcpayserver_store_id and btcpayserver_url != "DECRYPTION_ERROR" and btcpayserver_api_key != "DECRYPTION_ERROR" and btcpayserver_store_id != "DECRYPTION_ERROR":
+            available.append({"id": "btcpayserver", "name": "BTCPayServer (Bitcoin)", "type": "redirect"})
+        
         response = jsonify({"methods": available})
         response.headers.add('Access-Control-Allow-Origin', '*')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
@@ -2913,6 +2923,94 @@ def miniapp_create_payment():
                     "detail": {
                         "title": "Payment Error",
                         "message": f"Monobank API Error: {error_msg}"
+                    }
+                }), 500
+        
+        elif payment_provider == 'btcpayserver':
+            # BTCPayServer API
+            btcpayserver_url = decrypt_key(s.btcpayserver_url) if s else None
+            btcpayserver_api_key = decrypt_key(s.btcpayserver_api_key) if s else None
+            btcpayserver_store_id = decrypt_key(s.btcpayserver_store_id) if s else None
+            
+            if not btcpayserver_url or not btcpayserver_api_key or not btcpayserver_store_id or btcpayserver_url == "DECRYPTION_ERROR" or btcpayserver_api_key == "DECRYPTION_ERROR" or btcpayserver_store_id == "DECRYPTION_ERROR":
+                return jsonify({
+                    "detail": {
+                        "title": "Payment Error",
+                        "message": "BTCPayServer credentials not configured"
+                    }
+                }), 500
+            
+            # Очищаем URL от завершающего слеша
+            btcpayserver_url = btcpayserver_url.rstrip('/')
+            
+            # Формируем payload для создания инвойса согласно BTCPayServer API
+            # BTCPayServer работает с криптовалютами, но может принимать фиат через конвертацию
+            # Для простоты используем USD как базовую валюту, BTCPayServer конвертирует в BTC
+            invoice_currency = info['c']
+            
+            # Формируем metadata с информацией о заказе
+            metadata = {
+                "orderId": order_id,
+                "buyerEmail": user.email if user.email else None,
+                "itemDesc": f"VPN Subscription - {t.name} ({t.duration_days} days)"
+            }
+            
+            # Payload для создания инвойса
+            # Добавляем checkout options с redirect URL и callback URL для webhook
+            checkout_options = {
+                "redirectURL": f"{YOUR_SERVER_IP_OR_DOMAIN}/miniapp/" if YOUR_SERVER_IP_OR_DOMAIN else "https://client.vpnborz.ru/miniapp/"
+            }
+            
+            payload = {
+                "amount": f"{final_amount:.2f}",
+                "currency": invoice_currency,
+                "metadata": metadata,
+                "checkout": checkout_options
+            }
+            
+            # URL для создания инвойса: POST /api/v1/stores/{storeId}/invoices
+            invoice_url = f"{btcpayserver_url}/api/v1/stores/{btcpayserver_store_id}/invoices"
+            
+            # Заголовки для авторизации (BTCPayServer использует Basic Auth или API Key в заголовке)
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"token {btcpayserver_api_key}"
+            }
+            
+            try:
+                resp = requests.post(
+                    invoice_url,
+                    json=payload,
+                    headers=headers,
+                    timeout=30
+                )
+                resp.raise_for_status()
+                invoice_data = resp.json()
+                
+                # Получаем checkoutLink из ответа
+                payment_url = invoice_data.get('checkoutLink')
+                payment_system_id = invoice_data.get('id')  # Invoice ID
+                
+                if not payment_url:
+                    error_msg = invoice_data.get('message') or 'Failed to get payment URL from BTCPayServer'
+                    return jsonify({
+                        "detail": {
+                            "title": "Payment Error",
+                            "message": error_msg
+                        }
+                    }), 500
+            except requests.exceptions.RequestException as e:
+                error_msg = str(e)
+                if hasattr(e, 'response') and e.response is not None:
+                    try:
+                        error_data = e.response.json()
+                        error_msg = error_data.get('message') or error_data.get('error') or str(e)
+                    except:
+                        pass
+                return jsonify({
+                    "detail": {
+                        "title": "Payment Error",
+                        "message": f"BTCPayServer API Error: {error_msg}"
                     }
                 }), 500
         
@@ -4752,13 +4850,79 @@ def available_payment_methods():
     if monobank_token and monobank_token != "DECRYPTION_ERROR":
         available.append('monobank')
     
+    # BTCPayServer - нужны url, api_key и store_id
+    btcpayserver_url = decrypt_key(s.btcpayserver_url) if s.btcpayserver_url else None
+    btcpayserver_api_key = decrypt_key(s.btcpayserver_api_key) if s.btcpayserver_api_key else None
+    btcpayserver_store_id = decrypt_key(s.btcpayserver_store_id) if s.btcpayserver_store_id else None
+    if btcpayserver_url and btcpayserver_api_key and btcpayserver_store_id and btcpayserver_url != "DECRYPTION_ERROR" and btcpayserver_api_key != "DECRYPTION_ERROR" and btcpayserver_store_id != "DECRYPTION_ERROR":
+        available.append('btcpayserver')
+    
     return jsonify({"available_methods": available}), 200
 
 @app.route('/api/admin/payment-settings', methods=['GET', 'POST'])
 @admin_required
 def pay_settings(current_admin):
-    s = PaymentSetting.query.first() or PaymentSetting()
-    if not s.id: db.session.add(s); db.session.commit()
+    try:
+        s = PaymentSetting.query.first() or PaymentSetting()
+        if not s.id: db.session.add(s); db.session.commit()
+    except Exception as e:
+        # Если ошибка связана с отсутствующими колонками, пытаемся их добавить
+        error_str = str(e)
+        if "no such column" in error_str.lower():
+            print(f"⚠️  Обнаружены отсутствующие колонки в payment_setting, добавляем их...")
+            try:
+                import sqlite3
+                db_path = app.config.get('SQLALCHEMY_DATABASE_URI', '').replace('sqlite:///', '')
+                if not db_path:
+                    db_path = 'stealthnet.db'
+                
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                
+                # Проверяем существующие колонки
+                cursor.execute("PRAGMA table_info(payment_setting)")
+                existing_columns = [col[1] for col in cursor.fetchall()]
+                
+                # Добавляем все недостающие колонки из required_columns
+                required_columns = {
+                    'platega_api_key': 'TEXT',
+                    'platega_merchant_id': 'TEXT',
+                    'mulenpay_api_key': 'TEXT',
+                    'mulenpay_secret_key': 'TEXT',
+                    'mulenpay_shop_id': 'TEXT',
+                    'urlpay_api_key': 'TEXT',
+                    'urlpay_secret_key': 'TEXT',
+                    'urlpay_shop_id': 'TEXT',
+                    'monobank_token': 'TEXT',
+                    'btcpayserver_url': 'TEXT',
+                    'btcpayserver_api_key': 'TEXT',
+                    'btcpayserver_store_id': 'TEXT'
+                }
+                
+                for col_name, col_type in required_columns.items():
+                    if col_name not in existing_columns:
+                        try:
+                            cursor.execute(f"ALTER TABLE payment_setting ADD COLUMN {col_name} {col_type}")
+                            print(f"✓ Колонка {col_name} добавлена")
+                        except sqlite3.OperationalError as alter_e:
+                            if "duplicate column name" not in str(alter_e).lower():
+                                print(f"⚠️  Ошибка при добавлении колонки {col_name}: {alter_e}")
+                
+                conn.commit()
+                conn.close()
+                
+                # Повторяем запрос после миграции
+                s = PaymentSetting.query.first() or PaymentSetting()
+                if not s.id: db.session.add(s); db.session.commit()
+            except Exception as migration_error:
+                print(f"❌ Ошибка при миграции: {migration_error}")
+                import traceback
+                traceback.print_exc()
+                # Возвращаем пустые настройки, чтобы не сломать интерфейс
+                s = PaymentSetting()
+        else:
+            # Другая ошибка - пробрасываем дальше
+            raise
     if request.method == 'POST':
         d = request.json
         s.crystalpay_api_key = encrypt_key(d.get('crystalpay_api_key', ''))
@@ -4776,6 +4940,9 @@ def pay_settings(current_admin):
         s.urlpay_secret_key = encrypt_key(d.get('urlpay_secret_key', ''))
         s.urlpay_shop_id = encrypt_key(d.get('urlpay_shop_id', ''))
         s.monobank_token = encrypt_key(d.get('monobank_token', ''))
+        s.btcpayserver_url = encrypt_key(d.get('btcpayserver_url', ''))
+        s.btcpayserver_api_key = encrypt_key(d.get('btcpayserver_api_key', ''))
+        s.btcpayserver_store_id = encrypt_key(d.get('btcpayserver_store_id', ''))
         db.session.commit()
     return jsonify({
         "crystalpay_api_key": decrypt_key(s.crystalpay_api_key), 
@@ -4789,10 +4956,13 @@ def pay_settings(current_admin):
         "mulenpay_api_key": decrypt_key(s.mulenpay_api_key),
         "mulenpay_secret_key": decrypt_key(s.mulenpay_secret_key),
         "mulenpay_shop_id": decrypt_key(s.mulenpay_shop_id),
-        "urlpay_api_key": decrypt_key(s.urlpay_api_key),
+        "urlpay_api_key": decrypt_key(s.urlpay_api_key), 
         "urlpay_secret_key": decrypt_key(s.urlpay_secret_key),
         "urlpay_shop_id": decrypt_key(s.urlpay_shop_id),
-        "monobank_token": decrypt_key(s.monobank_token)
+        "monobank_token": decrypt_key(s.monobank_token),
+        "btcpayserver_url": decrypt_key(s.btcpayserver_url),
+        "btcpayserver_api_key": decrypt_key(s.btcpayserver_api_key),
+        "btcpayserver_store_id": decrypt_key(s.btcpayserver_store_id)
     }), 200
 
 @app.route('/api/client/create-payment', methods=['POST'])
@@ -5251,6 +5421,71 @@ def create_payment():
                 else:
                     error_msg = str(e)
                 return jsonify({"message": f"Monobank API Error: {error_msg}"}), 500
+        
+        elif payment_provider == 'btcpayserver':
+            # BTCPayServer API
+            btcpayserver_url = decrypt_key(s.btcpayserver_url) if s else None
+            btcpayserver_api_key = decrypt_key(s.btcpayserver_api_key) if s else None
+            btcpayserver_store_id = decrypt_key(s.btcpayserver_store_id) if s else None
+            
+            if not btcpayserver_url or not btcpayserver_api_key or not btcpayserver_store_id or btcpayserver_url == "DECRYPTION_ERROR" or btcpayserver_api_key == "DECRYPTION_ERROR" or btcpayserver_store_id == "DECRYPTION_ERROR":
+                return jsonify({"message": "BTCPayServer credentials not configured"}), 500
+            
+            # Очищаем URL от завершающего слеша
+            btcpayserver_url = btcpayserver_url.rstrip('/')
+            
+            # Формируем payload для создания инвойса
+            invoice_currency = info['c']
+            
+            metadata = {
+                "orderId": order_id,
+                "buyerEmail": user.email if user.email else None,
+                "itemDesc": f"VPN Subscription - {t.name} ({t.duration_days} days)"
+            }
+            
+            # Добавляем checkout options с redirect URL
+            checkout_options = {
+                "redirectURL": f"{YOUR_SERVER_IP_OR_DOMAIN}/dashboard/subscription" if YOUR_SERVER_IP_OR_DOMAIN else "https://client.vpnborz.ru/dashboard/subscription"
+            }
+            
+            payload = {
+                "amount": f"{final_amount:.2f}",
+                "currency": invoice_currency,
+                "metadata": metadata,
+                "checkout": checkout_options
+            }
+            
+            invoice_url = f"{btcpayserver_url}/api/v1/stores/{btcpayserver_store_id}/invoices"
+            
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"token {btcpayserver_api_key}"
+            }
+            
+            try:
+                resp = requests.post(
+                    invoice_url,
+                    json=payload,
+                    headers=headers,
+                    timeout=30
+                )
+                resp.raise_for_status()
+                invoice_data = resp.json()
+                
+                payment_url = invoice_data.get('checkoutLink')
+                payment_system_id = invoice_data.get('id')
+                
+                if not payment_url:
+                    return jsonify({"message": "Failed to create payment"}), 500
+            except requests.exceptions.RequestException as e:
+                error_msg = str(e)
+                if hasattr(e, 'response') and e.response is not None:
+                    try:
+                        error_data = e.response.json()
+                        error_msg = error_data.get('message') or error_data.get('error') or str(e)
+                    except:
+                        pass
+                return jsonify({"message": f"BTCPayServer API Error: {error_msg}"}), 500
         
         elif payment_provider == 'urlpay':
             # UrlPay API (аналогично Mulenpay)
@@ -6138,6 +6373,112 @@ def urlpay_webhook():
         traceback.print_exc()
         return jsonify({}), 200  # Всегда возвращаем 200, чтобы UrlPay не повторял запрос
 
+@app.route('/api/webhook/btcpayserver', methods=['POST'])
+def btcpayserver_webhook():
+    """
+    Webhook для обработки событий BTCPayServer
+    
+    В настройках BTCPayServer Store нужно указать webhook URL:
+    {YOUR_SERVER_IP_OR_DOMAIN}/api/webhook/btcpayserver
+    
+    BTCPayServer отправляет события в формате:
+    {
+        "type": "InvoiceSettled",  // или InvoiceReceivedPayment, InvoiceInvalid, InvoiceExpired
+        "data": {
+            "id": "invoice_id",
+            "status": "Settled",
+            ...
+        }
+    }
+    """
+    try:
+        # BTCPayServer отправляет события в формате JSON
+        # Типы событий: InvoiceSettled, InvoiceReceivedPayment, InvoiceInvalid, InvoiceExpired и т.д.
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data"}), 400
+        
+        event_type = data.get('type')
+        invoice_data = data.get('data', {})
+        
+        # Нас интересует только событие InvoiceSettled (инвойс оплачен)
+        if event_type != 'InvoiceSettled':
+            return jsonify({"error": False}), 200
+        
+        # Получаем invoice ID из данных
+        invoice_id = invoice_data.get('id')
+        if not invoice_id:
+            return jsonify({"error": "No invoice ID"}), 400
+        
+        # Ищем платеж по payment_system_id (invoice ID)
+        p = Payment.query.filter_by(payment_system_id=invoice_id).first()
+        if not p or p.status == 'PAID':
+            return jsonify({"error": False}), 200
+        
+        # Проверяем статус инвойса
+        invoice_status = invoice_data.get('status')
+        if invoice_status != 'Settled':
+            return jsonify({"error": False}), 200
+        
+        u = db.session.get(User, p.user_id)
+        t = db.session.get(Tariff, p.tariff_id)
+        
+        h, c = get_remnawave_headers()
+        live = requests.get(f"{API_URL}/api/users/{u.remnawave_uuid}", headers=h, cookies=c).json().get('response', {})
+        curr_exp = parse_iso_datetime(live.get('expireAt'))
+        new_exp = max(datetime.now(timezone.utc), curr_exp) + timedelta(days=t.duration_days)
+        
+        # Используем сквад из тарифа, если указан, иначе дефолтный
+        squad_id = t.squad_id if t.squad_id else DEFAULT_SQUAD_ID
+        
+        # Формируем payload для обновления пользователя
+        patch_payload = {
+            "uuid": u.remnawave_uuid,
+            "expireAt": new_exp.isoformat(),
+            "activeInternalSquads": [squad_id]
+        }
+        
+        # Добавляем лимит трафика, если указан в тарифе
+        if t.traffic_limit_bytes and t.traffic_limit_bytes > 0:
+            patch_payload["trafficLimitBytes"] = t.traffic_limit_bytes
+            patch_payload["trafficLimitStrategy"] = "NO_RESET"
+        
+        h, c = get_remnawave_headers({"Content-Type": "application/json"})
+        patch_resp = requests.patch(f"{API_URL}/api/users", headers=h, cookies=c, json=patch_payload)
+        if not patch_resp.ok:
+            print(f"⚠️ Failed to update user in RemnaWave: Status {patch_resp.status_code}")
+            return jsonify({"error": False}), 200
+        
+        # Списываем использование промокода, если он был использован
+        if p.promo_code_id:
+            promo = db.session.get(PromoCode, p.promo_code_id)
+            if promo and promo.uses_left > 0:
+                promo.uses_left -= 1
+        
+        p.status = 'PAID'
+        db.session.commit()
+        cache.delete(f'live_data_{u.remnawave_uuid}')
+        cache.delete(f'nodes_{u.remnawave_uuid}')
+        
+        # Синхронизируем обновленную подписку из RemnaWave в бота в фоновом режиме
+        if BOT_API_URL and BOT_API_TOKEN:
+            app_context = app.app_context()
+            import threading
+            sync_thread = threading.Thread(
+                target=sync_subscription_to_bot_in_background,
+                args=(app_context, u.remnawave_uuid),
+                daemon=True
+            )
+            sync_thread.start()
+            print(f"Started background sync thread for user {u.remnawave_uuid}")
+        
+        return jsonify({"error": False}), 200
+    except Exception as e:
+        print(f"Error in btcpayserver_webhook: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": False}), 200  # Возвращаем успех, чтобы BTCPayServer не повторял запрос
+
 @app.route('/api/webhook/monobank', methods=['POST'])
 def monobank_webhook():
     """Webhook для обработки уведомлений от Monobank"""
@@ -6906,7 +7247,10 @@ def init_database():
                     urlpay_api_key TEXT,
                     urlpay_secret_key TEXT,
                     urlpay_shop_id TEXT,
-                    monobank_token TEXT
+                    monobank_token TEXT,
+                    btcpayserver_url TEXT,
+                    btcpayserver_api_key TEXT,
+                    btcpayserver_store_id TEXT
                 )
             """)
             conn.commit()
@@ -6918,10 +7262,14 @@ def init_database():
             cursor.execute("PRAGMA table_info(payment_setting)")
             existing_columns = [col[1] for col in cursor.fetchall()]
             
-            # Список всех необходимых колонок
-            required_columns = ['platega_api_key', 'platega_merchant_id', 'mulenpay_api_key', 
-                               'mulenpay_secret_key', 'mulenpay_shop_id', 'urlpay_api_key', 
-                               'urlpay_secret_key', 'urlpay_shop_id', 'monobank_token']
+            # Список всех необходимых колонок (включая новые)
+            required_columns = [
+                'platega_api_key', 'platega_merchant_id', 
+                'mulenpay_api_key', 'mulenpay_secret_key', 'mulenpay_shop_id', 
+                'urlpay_api_key', 'urlpay_secret_key', 'urlpay_shop_id', 
+                'monobank_token',
+                'btcpayserver_url', 'btcpayserver_api_key', 'btcpayserver_store_id'
+            ]
             
             # Проверяем, какие колонки отсутствуют
             missing_columns = [col for col in required_columns if col not in existing_columns]
@@ -6942,7 +7290,10 @@ def init_database():
                     'urlpay_api_key': 'TEXT',
                     'urlpay_secret_key': 'TEXT',
                     'urlpay_shop_id': 'TEXT',
-                    'monobank_token': 'TEXT'
+                    'monobank_token': 'TEXT',
+                    'btcpayserver_url': 'TEXT',
+                    'btcpayserver_api_key': 'TEXT',
+                    'btcpayserver_store_id': 'TEXT'
                 }
                 
                 # Добавляем каждую недостающую колонку
