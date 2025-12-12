@@ -105,14 +105,12 @@ mkdir -p instance cache logs nginx/ssl frontend/build
 cd /opt/STEALTHNET-Admin-Panel
 
 # Если есть .env.example, копируем его
-if [ -f .env.example ]; then
-    cp .env.example .env
-elif [ -f env.example ]; then
+
     cp env.example .env
-else
+           или
     # Создаем пустой .env файл
-    touch .env
-fi
+    nano .env
+
 
 # Генерируем ключи (опционально, можно использовать скрипт)
 chmod +x generate_keys.sh
@@ -797,4 +795,5 @@ docker compose logs -f
 ---
 
 **Удачной установки!** 🚀
+
 
