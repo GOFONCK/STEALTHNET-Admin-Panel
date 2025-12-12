@@ -67,12 +67,16 @@ CORS(app, resources={r"/api/.*": {
 
 # База данных и Секреты
 app.config['JWT_SECRET_KEY'] = os.getenv("JWT_SECRET_KEY")
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///stealthnet.db'
+# Используем instance/ для хранения БД, чтобы она сохранялась через volume mount
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///instance/stealthnet.db')
 app.config['FERNET_KEY'] = FERNET_KEY_STR.encode() if FERNET_KEY_STR else None
 
 # Кэширование
 app.config['CACHE_TYPE'] = 'FileSystemCache'
-app.config['CACHE_DIR'] = os.path.join(app.instance_path, 'cache')
+# Создаем директорию для кэша, если её нет
+cache_dir = os.path.join(app.instance_path, 'cache')
+os.makedirs(cache_dir, exist_ok=True)
+app.config['CACHE_DIR'] = cache_dir
 cache = Cache(app)
 
 # Почта
@@ -9101,6 +9105,14 @@ def init_database():
     import sqlite3
     
     db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+    
+    # Создаем директорию для базы данных, если её нет
+    if db_path:
+        db_dir = os.path.dirname(db_path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+            print(f"✅ Создана директория для базы данных: {db_dir}")
+    
     db_exists = os.path.exists(db_path) if db_path else False
     
     # Флаг для отслеживания миграции payment_setting
@@ -10056,8 +10068,9 @@ def miniapp_static(path):
     
     return jsonify({"error": "File not found"}), 404
 
+# Инициализация базы данных при старте приложения (для Gunicorn и прямого запуска)
+with app.app_context():
+    init_database()
+
 if __name__ == '__main__':
-    with app.app_context():
-        init_database()
-    app.run(port=5000, debug=False)
     app.run(port=5000, debug=False)
