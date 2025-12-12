@@ -4932,6 +4932,11 @@ def telegram_auth_enabled():
         "bot_name": TELEGRAM_BOT_NAME if enabled else None
     }), 200
 
+@app.route('/api/public/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for Docker and monitoring"""
+    return jsonify({"status": "ok", "service": "StealthNET API"}), 200
+
 @app.route('/api/public/server-domain', methods=['GET'])
 def server_domain():
     """Получить домен сервера из переменной окружения"""
