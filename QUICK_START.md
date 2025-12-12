@@ -63,7 +63,27 @@ ls -la frontend/build/
 # cp -r /path/to/admin-panel/build/* frontend/build/
 ```
 
-### 5. Запустите проект
+### 5. Настройте Nginx
+
+```bash
+# Редактируйте конфигурацию Nginx
+nano nginx/nginx.conf
+
+# Замените server_name _; на ваш домен или IP:
+# server_name panel.stealthnet.app;  # или ваш IP адрес
+
+# Для продакшена с HTTPS (после получения SSL сертификата):
+# 1. Раскомментируйте блок с HTTPS в nginx/nginx.conf
+# 2. Получите SSL сертификат (Let's Encrypt):
+#    certbot certonly --standalone -d panel.stealthnet.app --email your@email.com --agree-tos
+# 3. Скопируйте SSL сертификаты:
+#    cp /etc/letsencrypt/live/panel.stealthnet.app/fullchain.pem nginx/ssl/
+#    cp /etc/letsencrypt/live/panel.stealthnet.app/privkey.pem nginx/ssl/
+# 4. Перезапустите Nginx:
+#    docker compose restart nginx
+```
+
+### 6. Запустите проект
 
 ```bash
 # Используйте скрипт запуска
@@ -75,7 +95,7 @@ docker compose build
 docker compose up -d  # База данных создастся автоматически при первом запуске
 ```
 
-### 6. Проверьте работу
+### 7. Проверьте работу
 
 ```bash
 # Статус

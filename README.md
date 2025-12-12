@@ -213,15 +213,43 @@ Telegram бот для клиентов с полным функционалом
    nano .env  # Заполните все необходимые переменные
    ```
 
-4. **Запустите проект**:
+4. **Настройте Nginx**:
+   ```bash
+   # Редактируйте конфигурацию Nginx
+   nano nginx/nginx.conf
+   
+   # Замените server_name _; на ваш домен или IP:
+   # server_name panel.stealthnet.app;  # или ваш IP адрес
+   
+   # Для продакшена с HTTPS (после получения SSL сертификата):
+   # 1. Раскомментируйте блок с HTTPS в nginx/nginx.conf
+   # 2. Получите SSL сертификат (Let's Encrypt):
+   #    certbot certonly --standalone -d panel.stealthnet.app --email your@email.com --agree-tos
+   # 3. Скопируйте SSL сертификаты:
+   #    cp /etc/letsencrypt/live/panel.stealthnet.app/fullchain.pem nginx/ssl/
+   #    cp /etc/letsencrypt/live/panel.stealthnet.app/privkey.pem nginx/ssl/
+   # 4. Перезапустите Nginx:
+   #    docker compose restart nginx
+   ```
+
+5. **Запустите проект**:
    ```bash
    docker compose up -d
    ```
 
-5. **Проверьте работу**:
+6. **Проверьте работу**:
    ```bash
+   # Проверьте статус контейнеров
    docker compose ps
+   
+   # Проверьте логи
    docker compose logs -f
+   
+   # Проверьте API
+   curl http://localhost:5000/api/public/health
+   
+   # Откройте в браузере
+   # http://your-server-ip или https://your-domain
    ```
 
 ### Подробная инструкция
@@ -306,6 +334,7 @@ chmod +x generate_keys.sh
 
 - **[INSTALLATION.md](./INSTALLATION.md)** - Полная подробная инструкция по установке (рекомендуется)
 - **[QUICK_START.md](./QUICK_START.md)** - Быстрый старт за 5 минут
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Развертывание на различных платформах (Railway, Fly.io, Render и др.)
 - **[nginx config examlpe.md](./nginx%20config%20examplpe.md)** - Пример конфигурации Nginx
 
 ---
@@ -380,9 +409,10 @@ docker compose logs api
 
 **Адрес для (TRX/USDT-TRC20 и аналогичных):** `TWG5eK5Yc4BRHhaMc1GncPtj2pP3mfJ7ag`
 
-**Адрес для (Ethereum / BSC / EVM-совместимые сети):**  `0x7cfD59365ee3C97576fe387886b55298c9CeAc5E`
+**Адрес для (Ethereum / BSC / EVM-совместимые сети):**
+- `0x7cfD59365ee3C97576fe387886b55298c9CeAc5E`
+- `0x23cB77312DC0163d80d8bf23df272aCD21177846`
 
 **Или звездами Telegram ⭐️**
 
 Огромное вам спасибо за вашу веру в наш проект! Вместе мы сильнее! 💪
-
